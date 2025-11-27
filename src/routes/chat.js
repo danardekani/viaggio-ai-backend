@@ -39,6 +39,12 @@ router.post('/', async (req, res, next) => {
   try {
     const { messages, context = {} } = req.body;
 
+    // Clean messages - Claude API only accepts 'role' and 'content'
+    const cleanedMessages = messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
     // Validate request
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       throw new ApiError(400, 'Messages array is required');
