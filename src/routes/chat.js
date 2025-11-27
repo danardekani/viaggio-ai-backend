@@ -65,7 +65,7 @@ router.post('/', async (req, res, next) => {
     });
 
     // Get response from Claude
-    const response = await chatWithClaude(messages, updatedContext);
+    const response = await chatWithClaude(cleanedMessages, updatedContext);
 
     // Return response with updated context
     res.json({
