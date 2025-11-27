@@ -28,9 +28,6 @@ import { logger } from './utils/logger.js';
 // CONFIGURATION
 // ============================================================================
 
-// Trust proxy - required for Railway (and other cloud platforms)
-app.set('trust proxy', 1);
-
 // Load environment variables from .env file
 dotenv.config();
 
@@ -41,6 +38,9 @@ const __dirname = dirname(__filename);
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Trust proxy - required for Railway (and other cloud platforms)
+app.set('trust proxy', 1);
 
 // ============================================================================
 // MIDDLEWARE
