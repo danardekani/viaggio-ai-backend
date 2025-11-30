@@ -9,7 +9,11 @@ export const corsConfig = {
     // Allow requests from your frontend domain
     const allowedOrigins = [
       process.env.FRONTEND_URL,
-      process.env.FRONTEND_URL_TEST,
+
+      // Test/Preview branches
+      'https://viaggio-ai-git-viaggio-ai-frontend-test-danardekanis-projects.vercel.app',
+      'https://viaggio-a7dvl0g3r-danardekanis-projects.vercel.app',
+      
       'http://localhost:5173',  // Local development
       'http://localhost:3000'   // Alternative local port
     ];
