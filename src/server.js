@@ -12,6 +12,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import tourRoutes from './routes/tours.js';
 
 // Import routes
 import chatRoutes from './routes/chat.js';
@@ -54,6 +55,9 @@ app.use(cors(corsConfig));
 
 // Apply rate limiting to prevent abuse
 app.use('/api/', rateLimiter);
+
+// Get tours from viator
+app.use('/api/tours', tourRoutes);
 
 // Log all incoming requests
 app.use((req, res, next) => {
