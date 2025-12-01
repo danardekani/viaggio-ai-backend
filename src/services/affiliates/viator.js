@@ -8,10 +8,7 @@
 import { logger } from '../../utils/logger.js';
 
 // Viator Partner API base URL
-// Use sandbox for testing, production when ready
-const VIATOR_API_BASE = process.env.VIATOR_SANDBOX === 'true' 
-  ? 'https://api.sandbox.viator.com/partner'
-  : 'https://api.viator.com/partner';
+const VIATOR_API_BASE = 'https://api.viator.com/partner';
 
 // Your affiliate credentials (from environment variables)
 const API_KEY = process.env.VIATOR_API_KEY;
@@ -27,8 +24,20 @@ const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
  * @returns {Object} Destination details including destId
  */
 export async function searchDestination(query) {
+  // Debug: Log what we're working with
+  const maskedKey = API_KEY ? `${API_KEY.substring(0, 8)}...${API_KEY.substring(API_KEY.length - 4)}` : 'UNDEFINED';
+  logger.info(`Viator API Key (masked): ${maskedKey}`);
+  
+  if (!API_KEY) {
+    logger.error('VIATOR_API_KEY environment variable is not set!');
+    throw new Error('Viator API key not configured');
+  }
+
+  const url = `${VIATOR_API_BASE}/destinations`;
+  logger.info(`Calling Viator destinations: ${url}`);
+
   try {
-    const response = await fetch(`${VIATOR_API_BASE}/v1/taxonomy/destinations`, {
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'exp-api-key': API_KEY,
@@ -37,31 +46,49 @@ export async function searchDestination(query) {
       }
     });
 
+    logger.info(`Viator destinations response status: ${response.status}`);
+
     if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Viator destinations error: ${response.status} - ${errorText}`);
       throw new Error(`Viator API error: ${response.status}`);
     }
 
     const data = await response.json();
     
+    // Handle different response formats
+    const destinations = data.destinations || data.data || data || [];
+    logger.info(`Viator returned ${Array.isArray(destinations) ? destinations.length : 'unknown'} destinations`);
+    
+    if (!Array.isArray(destinations)) {
+      logger.error('Unexpected destinations format:', JSON.stringify(data).substring(0, 200));
+      throw new Error('Unexpected API response format');
+    }
+
     // Find matching destination
-    const destinations = data.data || [];
-    const match = destinations.find(dest => 
-      dest.destinationName?.toLowerCase().includes(query.toLowerCase())
-    );
+    const match = destinations.find(dest => {
+      const name = dest.destinationName || dest.name || '';
+      return name.toLowerCase().includes(query.toLowerCase());
+    });
 
     if (!match) {
       logger.warn(`Destination not found: ${query}`);
       return null;
     }
 
+    const destId = match.destinationId || match.id;
+    const destName = match.destinationName || match.name;
+    
+    logger.info(`Found destination: ${destName} (ID: ${destId})`);
+
     return {
-      destId: match.destinationId,
-      name: match.destinationName,
-      type: match.destinationType
+      destId: destId,
+      name: destName,
+      type: match.destinationType || match.type
     };
 
   } catch (error) {
-    logger.error('Viator destination search error:', error);
+    logger.error('Viator destination search error:', error.message);
     throw error;
   }
 }
@@ -81,20 +108,20 @@ export async function searchDestination(query) {
  */
 export async function searchTours({ destination, startDate, endDate, adults = 2 }) {
   try {
+    logger.info(`Starting tour search for: ${destination}`);
+    
     // First, get the destination ID
     const destInfo = await searchDestination(destination);
     
     if (!destInfo) {
-      // Return empty array if destination not found
+      logger.warn(`No destination found for: ${destination}`);
       return [];
     }
 
     // Search for products at this destination
     const searchBody = {
       filtering: {
-        destination: destInfo.destId.toString(),
-        lowestPrice: 1,
-        highestPrice: 500
+        destination: destInfo.destId.toString()
       },
       sorting: {
         sort: 'TRAVELER_RATING',
@@ -115,7 +142,11 @@ export async function searchTours({ destination, startDate, endDate, adults = 2 
       searchBody.filtering.endDate = endDate;
     }
 
-    const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+    const url = `${VIATOR_API_BASE}/products/search`;
+    logger.info(`Calling Viator products search: ${url}`);
+    logger.info(`Search body: ${JSON.stringify(searchBody)}`);
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'exp-api-key': API_KEY,
@@ -126,6 +157,8 @@ export async function searchTours({ destination, startDate, endDate, adults = 2 
       body: JSON.stringify(searchBody)
     });
 
+    logger.info(`Viator products response status: ${response.status}`);
+
     if (!response.ok) {
       const errorText = await response.text();
       logger.error(`Viator search error: ${response.status} - ${errorText}`);
@@ -133,13 +166,68 @@ export async function searchTours({ destination, startDate, endDate, adults = 2 
     }
 
     const data = await response.json();
-    const products = data.products || [];
+    const products = data.products || data.data || [];
+    
+    logger.info(`Found ${products.length} tours for ${destination}`);
 
     // Format results with affiliate tracking links
     return products.map(product => formatTourResult(product, destination, startDate, adults));
 
   } catch (error) {
-    logger.error('Viator tour search error:', error);
+    logger.error('Viator tour search error:', error.message);
+    throw error;
+  }
+}
+
+// ============================================================================
+// FREETEXT SEARCH (Alternative method)
+// ============================================================================
+
+/**
+ * Search for tours using freetext query
+ * This is an alternative if destination-based search doesn't work
+ */
+export async function searchToursFreetxt(query) {
+  try {
+    logger.info(`Freetext search for: ${query}`);
+
+    const url = `${VIATOR_API_BASE}/search/freetext`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        searchTerm: query,
+        currency: 'USD',
+        pagination: {
+          start: 1,
+          count: 20
+        }
+      })
+    });
+
+    logger.info(`Viator freetext response status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Viator freetext error: ${response.status} - ${errorText}`);
+      throw new Error(`Viator API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const products = data.products || data.data || [];
+    
+    logger.info(`Freetext found ${products.length} tours`);
+
+    return products.map(product => formatTourResult(product, query, null, 2));
+
+  } catch (error) {
+    logger.error('Viator freetext search error:', error.message);
     throw error;
   }
 }
@@ -185,9 +273,11 @@ export async function getTourDetails(productCode) {
  * Format a Viator product into our standard tour format
  */
 function formatTourResult(product, destination, date, adults) {
-  // Extract pricing
+  // Extract pricing - handle various response formats
   const price = product.pricing?.summary?.fromPrice || 
+                product.pricing?.fromPrice ||
                 product.price?.fromPrice || 
+                product.fromPrice ||
                 0;
 
   // Extract duration
@@ -200,26 +290,34 @@ function formatTourResult(product, destination, date, adults) {
     const fromHours = Math.round(product.duration.variableDurationFromMinutes / 60);
     const toHours = Math.round(product.duration.variableDurationToMinutes / 60);
     duration = `${fromHours}-${toHours} hours`;
+  } else if (product.duration) {
+    duration = product.duration;
   }
 
   // Extract rating
   const rating = product.reviews?.combinedAverageRating?.toFixed(1) || 
-                 product.rating?.toFixed(1) || 
+                 product.rating?.toFixed(1) ||
+                 product.averageRating?.toFixed(1) ||
                  'New';
-  const reviewCount = product.reviews?.totalReviews || 0;
+  const reviewCount = product.reviews?.totalReviews || product.reviewCount || 0;
 
-  // Get image URL
-  const image = product.images?.[0]?.variants?.find(v => v.width >= 300)?.url ||
-                product.images?.[0]?.url ||
-                product.thumbnailURL ||
-                null;
+  // Get image URL - handle various formats
+  let image = null;
+  if (product.images && product.images.length > 0) {
+    const img = product.images[0];
+    image = img.variants?.find(v => v.width >= 300)?.url || img.url || img;
+  }
+  image = image || product.thumbnailURL || product.thumbnail || null;
+
+  // Get product code
+  const productCode = product.productCode || product.code || product.id;
 
   // Build affiliate tracking link
-  const bookingLink = buildAffiliateLink(product.productCode, destination);
+  const bookingLink = buildAffiliateLink(productCode, destination);
 
   return {
-    id: product.productCode,
-    name: product.title || product.productName,
+    id: productCode,
+    name: product.title || product.productName || product.name,
     description: truncateText(product.description || product.shortDescription, 200),
     duration: duration,
     rating: rating,
@@ -234,9 +332,10 @@ function formatTourResult(product, destination, date, adults) {
     
     // IMPORTANT: Affiliate tracking link
     bookingLink: bookingLink,
+    link: bookingLink, // Also set 'link' for backwards compatibility
     
     // Original product code for reference
-    productCode: product.productCode
+    productCode: productCode
   };
 }
 
@@ -249,9 +348,9 @@ function buildAffiliateLink(productCode, destination) {
   
   // Add affiliate tracking parameters
   const params = new URLSearchParams({
-    pid: AFFILIATE_ID,           // Partner/Affiliate ID
-    mcid: '42383',               // Media campaign ID (standard)
-    medium: 'link'               // Traffic medium
+    pid: AFFILIATE_ID || 'P00278785',  // Fallback to known ID
+    mcid: '42383',
+    medium: 'link'
   });
 
   return `${baseUrl}?${params.toString()}`;
@@ -273,5 +372,6 @@ function truncateText(text, maxLength) {
 export default {
   searchDestination,
   searchTours,
+  searchToursFreetxt,
   getTourDetails
 };
