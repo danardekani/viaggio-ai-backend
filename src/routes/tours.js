@@ -5,7 +5,7 @@
 // ============================================================================
 
 import express from 'express';
-import { searchTours, getTourDetails, searchDestination } from '../services/affiliates/viator.js';
+import { searchTours, getTourDetails, findDestination } from '../services/affiliates/viator.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -105,7 +105,7 @@ router.get('/destinations/search', async (req, res, next) => {
       return res.status(400).json({ error: 'Query must be at least 2 characters' });
     }
 
-    const destination = await searchDestination(q);
+    const destination = await findDestination(q);
 
     if (!destination) {
       return res.json({ destination: null, found: false });
