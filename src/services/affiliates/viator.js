@@ -8,7 +8,7 @@
 import { logger } from '../../utils/logger.js';
 
 // Viator Partner API base URL
-const VIATOR_API_BASE = 'https://api.viator.com/partner';
+const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 
 // Your affiliate credentials (from environment variables)
 const API_KEY = process.env.VIATOR_API_KEY;
