@@ -272,20 +272,20 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
 
   logger.info(`Freetext found ${products.length} tours for "${query}"`);
   
-  // If no results with search terms, fall back to destination-based search
+  // If no results with search terms, fall back to destination-based search with filtering
   if (products.length === 0 && terms) {
-    logger.info(`No freetext results, falling back to destination ID search for: "${destination}"`);
-    return await searchByDestinationId(destination, resultCount);
+    logger.info(`No freetext results, falling back to destination ID search for: "${destination}" with filter: "${terms}"`);
+    return await searchByDestinationId(destination, resultCount, terms);
   }
   
   return products.map(p => formatTourResult(p));
 }
 
 // ============================================================================
-// SEARCH BY DESTINATION ID (Fallback)
+// SEARCH BY DESTINATION ID (Fallback with optional filtering)
 // ============================================================================
 
-async function searchByDestinationId(destination, resultCount) {
+async function searchByDestinationId(destination, resultCount, filterTerms = '') {
   const destInfo = await findDestination(destination);
   
   if (!destInfo) {
@@ -293,7 +293,10 @@ async function searchByDestinationId(destination, resultCount) {
     return [];
   }
 
-  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})`);
+  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})${filterTerms ? ` with filter: "${filterTerms}"` : ''}`);
+
+  // Fetch more results if we need to filter
+  const fetchCount = filterTerms ? Math.min(resultCount * 5, 50) : Math.min(resultCount, 20);
 
   const searchBody = {
     filtering: {
@@ -305,7 +308,7 @@ async function searchByDestinationId(destination, resultCount) {
     },
     pagination: {
       start: 1,
-      count: Math.min(resultCount, 20)
+      count: fetchCount
     },
     currency: 'USD'
   };
@@ -328,10 +331,34 @@ async function searchByDestinationId(destination, resultCount) {
   }
 
   const data = await response.json();
-  const products = data.products || [];
+  let products = data.products || [];
 
   logger.info(`Fallback found ${products.length} tours for ${destination}`);
-  return products.map(p => formatTourResult(p));
+
+  // Apply client-side filtering if filter terms provided
+  if (filterTerms && products.length > 0) {
+    const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
+    
+    const filteredProducts = products.filter(product => {
+      const title = (product.title || '').toLowerCase();
+      const description = (product.description || '').toLowerCase();
+      const searchText = `${title} ${description}`;
+      
+      // Match if ANY filter word is found in title or description
+      return filterWords.some(word => searchText.includes(word));
+    });
+
+    logger.info(`Filtered ${products.length} tours down to ${filteredProducts.length} matching "${filterTerms}"`);
+
+    // Use filtered results if we found matches
+    if (filteredProducts.length > 0) {
+      products = filteredProducts;
+    } else {
+      logger.info(`No tours matched filter "${filterTerms}", returning top-rated tours instead`);
+    }
+  }
+
+  return products.slice(0, resultCount).map(p => formatTourResult(p));
 }
 
 // ============================================================================
