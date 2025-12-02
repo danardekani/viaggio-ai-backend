@@ -191,12 +191,14 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
     },
     body: JSON.stringify({
       searchTerm: query,
-      searchTypes: [{ searchType: 'PRODUCTS' }],  // Required by Viator API
-      currency: 'USD',
-      pagination: {
-        start: 1,
-        count: Math.min(resultCount, 20)
-      }
+      searchTypes: [{
+        searchType: 'PRODUCTS',
+        pagination: {
+          start: 1,
+          count: Math.min(resultCount, 20)
+        }
+      }],
+      currency: 'USD'
     })
   });
 
