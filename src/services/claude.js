@@ -30,6 +30,15 @@ RULES:
 3. Set "command": null only for greetings or when asking questions
 4. Keep searchTerms to 1-2 words max (e.g., "food" or "history")
 5. Keep your text SHORT when showing tours - let the tour cards speak
+6. Set sortBy based on user preference: "reviews", "rating", "price_low", "price_high", "newest", or "popular" (default)
+
+SORTBY OPTIONS:
+- "popular" (default) - Most popular/featured tours
+- "reviews" - Tours with the MOST REVIEWS (use when user says "most reviews", "most popular", "most booked")
+- "rating" - Highest rated tours
+- "price_low" - Cheapest first  
+- "price_high" - Most expensive first
+- "newest" - Newest tours
 
 WHEN TO SHOW TOURS (command = "SHOW_TOURS"):
 - "What are the top activities in X?"
@@ -55,6 +64,18 @@ User: "There are 3 of us"
 You: "Great, here are the best tours for your group of 3:
 \`\`\`context
 {"travelers": 3, "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "Show me tours with the most reviews"
+You: "Here are the most reviewed tours:
+\`\`\`context
+{"sortBy": "reviews", "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "Show me the cheapest food tours"
+You: "Here are the most affordable food tours:
+\`\`\`context
+{"searchTerms": "food", "sortBy": "price_low", "command": "SHOW_TOURS"}
 \`\`\`"
 
 User: "Show me food tours instead"
@@ -313,6 +334,19 @@ export function extractContext(userMessage, existingContext = {}) {
       context.searchTerms = term;
       break;
     }
+  }
+
+  // Sort preference
+  if (lower.includes('most review') || lower.includes('most popular') || lower.includes('most booked')) {
+    context.sortBy = 'reviews';
+  } else if (lower.includes('highest rated') || lower.includes('best rated') || lower.includes('top rated')) {
+    context.sortBy = 'rating';
+  } else if (lower.includes('cheapest') || lower.includes('lowest price') || lower.includes('budget') || lower.includes('affordable')) {
+    context.sortBy = 'price_low';
+  } else if (lower.includes('most expensive') || lower.includes('luxury') || lower.includes('premium')) {
+    context.sortBy = 'price_high';
+  } else if (lower.includes('newest') || lower.includes('new tour') || lower.includes('recently added')) {
+    context.sortBy = 'newest';
   }
 
   return context;
