@@ -29,40 +29,39 @@ PERSONALITY:
 
 CONVERSATION FLOW:
 1. Greet and ask about their destination
-2. Ask about travel dates, number of travelers, and budget
-3. Suggest flights matching their criteria
-4. After flight selection, suggest hotels
-5. After hotel selection, suggest tours and activities
-6. Offer to compile everything into a final itinerary
+2. Ask about travel dates, number of travelers, and interests
+3. After gathering info, suggest tours and activities
+4. Help them build an itinerary
 
-CRITICAL: When presenting travel options (flights, hotels, tours), you MUST respond with ONLY the following exact format:
+CRITICAL INSTRUCTION - CONTEXT EXTRACTION:
+When users mention travel details, you MUST include a JSON block at the END of your response to capture the information. Format:
 
-For flights, respond EXACTLY like this:
-SHOW_FLIGHTS
+\`\`\`context
+{"destination": "city name", "travelers": number, "month": "month name", "interests": ["interest1", "interest2"]}
+\`\`\`
 
-For hotels, respond EXACTLY like this:
-SHOW_HOTELS
+Only include fields that were mentioned. Examples:
 
-For tours, respond EXACTLY like this:
+User: "I want to visit Tokyo"
+Response: "Tokyo is amazing! When are you planning to visit and how many people will be traveling?
+\`\`\`context
+{"destination": "Tokyo"}
+\`\`\`"
+
+User: "4 of us in July, we love history and food"
+Response: "A group of 4 in July - perfect! Let me find some great tours for you.
 SHOW_TOURS
+\`\`\`context
+{"travelers": 4, "month": "July", "interests": ["history", "food"]}
+\`\`\`"
 
-Do NOT include any other text when showing options. Just the command word on its own line.
+SHOWING OPTIONS:
+When it's time to show tours/activities, include SHOW_TOURS on its own line.
 
-Before showing options, you can chat normally to gather information. But when it's time to show options, use ONLY these command words.
-
-Examples:
-User: "I want to go to Florence"
-AI: "Wonderful choice! Florence is magical. How many people are traveling and what are your dates?"
-
-User: "2 people in September"
-AI: "Perfect! Let me find some great flights for you.
-SHOW_FLIGHTS"
-
-User: "I'll take the United flight"
-AI: "Excellent choice! Now let's find you a perfect hotel.
-SHOW_HOTELS"
-
-Remember: Use SHOW_FLIGHTS, SHOW_HOTELS, or SHOW_TOURS commands when it's time to present options!`;
+Remember: 
+1. Always extract context into the JSON block
+2. Use SHOW_TOURS when ready to display activities
+3. Keep the conversation natural and helpful`;
 
 // ============================================================================
 // CHAT FUNCTION
@@ -87,7 +86,7 @@ export async function chatWithClaude(messages, context = {}) {
 
     // Call Claude API
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514', // Use latest Sonnet model
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
       system: systemPrompt,
       messages: messages
@@ -101,14 +100,15 @@ export async function chatWithClaude(messages, context = {}) {
       model: response.model
     });
 
-    // Parse the response for commands
-    const parsed = parseClaudeResponse(assistantMessage);
+    // Parse the response for commands and context
+    const parsed = parseClaudeResponse(assistantMessage, context);
 
     return {
       message: parsed.cleanedMessage,
       command: parsed.command,
+      extractedContext: parsed.extractedContext,
       fullResponse: assistantMessage,
-      usage: response.usage // Token usage for cost tracking
+      usage: response.usage
     };
 
   } catch (error) {
@@ -117,7 +117,6 @@ export async function chatWithClaude(messages, context = {}) {
       type: error.type 
     });
 
-    // Handle specific API errors
     if (error.status === 401) {
       throw new ApiError(500, 'Invalid API key - please check configuration');
     } else if (error.status === 429) {
@@ -135,35 +134,54 @@ export async function chatWithClaude(messages, context = {}) {
 // ============================================================================
 
 /**
- * Parse Claude's response for special commands
+ * Parse Claude's response for commands and context
  * @param {string} response - Raw response from Claude
- * @returns {Object} Parsed response with command and cleaned message
+ * @param {Object} existingContext - Previous context
+ * @returns {Object} Parsed response with command, cleaned message, and extracted context
  */
-function parseClaudeResponse(response) {
+function parseClaudeResponse(response, existingContext = {}) {
   let command = null;
   let cleanedMessage = response;
+  let extractedContext = { ...existingContext };
 
-  // Check for command keywords
-  if (response.includes('SHOW_FLIGHTS')) {
-    command = 'SHOW_FLIGHTS';
-    cleanedMessage = response.replace('SHOW_FLIGHTS', '').trim();
-  } else if (response.includes('SHOW_HOTELS')) {
-    command = 'SHOW_HOTELS';
-    cleanedMessage = response.replace('SHOW_HOTELS', '').trim();
-  } else if (response.includes('SHOW_TOURS')) {
-    command = 'SHOW_TOURS';
-    cleanedMessage = response.replace('SHOW_TOURS', '').trim();
+  // Extract context JSON block
+  const contextMatch = response.match(/```context\s*\n?([\s\S]*?)\n?```/);
+  if (contextMatch) {
+    try {
+      const contextJson = JSON.parse(contextMatch[1].trim());
+      // Merge with existing context (new values override)
+      extractedContext = { ...existingContext, ...contextJson };
+      // Remove context block from message
+      cleanedMessage = cleanedMessage.replace(/```context\s*\n?[\s\S]*?\n?```/g, '').trim();
+      
+      logger.info('Extracted context from Claude response', { extractedContext });
+    } catch (e) {
+      logger.warn('Failed to parse context JSON', { error: e.message });
+    }
   }
 
-  return { command, cleanedMessage };
+  // Check for command keywords
+  if (cleanedMessage.includes('SHOW_FLIGHTS')) {
+    command = 'SHOW_FLIGHTS';
+    cleanedMessage = cleanedMessage.replace(/SHOW_FLIGHTS/g, '').trim();
+  } else if (cleanedMessage.includes('SHOW_HOTELS')) {
+    command = 'SHOW_HOTELS';
+    cleanedMessage = cleanedMessage.replace(/SHOW_HOTELS/g, '').trim();
+  } else if (cleanedMessage.includes('SHOW_TOURS')) {
+    command = 'SHOW_TOURS';
+    cleanedMessage = cleanedMessage.replace(/SHOW_TOURS/g, '').trim();
+  }
+
+  return { command, cleanedMessage, extractedContext };
 }
 
 // ============================================================================
-// CONTEXT EXTRACTION
+// CONTEXT EXTRACTION (Fallback)
 // ============================================================================
 
 /**
  * Extract travel planning context from user messages
+ * This is a fallback in case Claude doesn't include context block
  * @param {string} userMessage - Latest message from user
  * @param {Object} existingContext - Previous context
  * @returns {Object} Updated context
@@ -172,28 +190,144 @@ export function extractContext(userMessage, existingContext = {}) {
   const lower = userMessage.toLowerCase();
   const context = { ...existingContext };
 
+  // List of common destinations to detect
+  const destinations = [
+    'florence', 'rome', 'venice', 'milan', 'naples', 'italy',
+    'paris', 'nice', 'lyon', 'france',
+    'london', 'edinburgh', 'manchester', 'uk', 'england', 'scotland',
+    'barcelona', 'madrid', 'seville', 'spain',
+    'amsterdam', 'netherlands',
+    'berlin', 'munich', 'germany',
+    'vienna', 'austria',
+    'prague', 'czech',
+    'lisbon', 'portugal',
+    'athens', 'santorini', 'greece',
+    'dublin', 'ireland',
+    'tokyo', 'kyoto', 'osaka', 'japan',
+    'bangkok', 'thailand',
+    'singapore',
+    'hong kong',
+    'sydney', 'melbourne', 'australia',
+    'auckland', 'new zealand',
+    'bali', 'indonesia',
+    'new york', 'nyc', 'los angeles', 'la', 'san francisco', 'sf',
+    'las vegas', 'vegas', 'miami', 'orlando', 'chicago', 'boston',
+    'seattle', 'san diego', 'washington', 'dc', 'new orleans', 'hawaii',
+    'honolulu', 'maui',
+    'cancun', 'mexico city', 'mexico',
+    'dubai', 'abu dhabi',
+    'cairo', 'egypt',
+    'cape town', 'south africa',
+    'rio', 'rio de janeiro', 'brazil',
+    'buenos aires', 'argentina'
+  ];
+
   // Extract destination
-  if (lower.includes('florence') || lower.includes('italy')) {
-    context.destination = 'florence';
-  } else if (lower.includes('paris') || lower.includes('france')) {
-    context.destination = 'paris';
+  for (const dest of destinations) {
+    if (lower.includes(dest)) {
+      // Capitalize properly
+      context.destination = dest.split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      // Handle special cases
+      if (dest === 'nyc') context.destination = 'New York';
+      if (dest === 'la') context.destination = 'Los Angeles';
+      if (dest === 'sf') context.destination = 'San Francisco';
+      if (dest === 'vegas') context.destination = 'Las Vegas';
+      if (dest === 'dc') context.destination = 'Washington DC';
+      if (dest === 'rio') context.destination = 'Rio de Janeiro';
+      
+      break;
+    }
   }
 
   // Extract number of travelers
-  const travelersMatch = lower.match(/(\d+)\s*(person|people|adult|traveler)/);
-  if (travelersMatch) {
-    context.travelers = parseInt(travelersMatch[1]);
+  const travelersPatterns = [
+    /(\d+)\s*(person|people|adult|adults|traveler|travelers|of us|guests)/i,
+    /group of\s*(\d+)/i,
+    /party of\s*(\d+)/i,
+    /(\d+)\s*of us/i
+  ];
+  
+  for (const pattern of travelersPatterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      context.travelers = parseInt(match[1]);
+      break;
+    }
+  }
+
+  // Extract month
+  const months = [
+    'january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'
+  ];
+  
+  for (const month of months) {
+    if (lower.includes(month)) {
+      context.month = month.charAt(0).toUpperCase() + month.slice(1);
+      break;
+    }
+  }
+
+  // Extract specific dates if mentioned
+  const dateMatch = lower.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dateMatch) {
+    context.startDate = dateMatch[0];
   }
 
   // Extract budget
-  const budgetMatch = lower.match(/\$?(\d+,?\d*)\s*(budget|spend|cost)/);
-  if (budgetMatch) {
-    context.budget = budgetMatch[1].replace(',', '');
+  const budgetPatterns = [
+    /\$\s*(\d+,?\d*)/,
+    /(\d+,?\d*)\s*(dollar|usd|budget)/i
+  ];
+  
+  for (const pattern of budgetPatterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      context.budget = parseInt(match[1].replace(',', ''));
+      break;
+    }
   }
 
-  // Extract dates (simple version - can be enhanced)
-  if (lower.includes('september')) context.month = 'September';
-  if (lower.includes('october')) context.month = 'October';
+  // Extract interests
+  const interestKeywords = {
+    'history': ['history', 'historic', 'historical', 'museum', 'museums'],
+    'food': ['food', 'foodie', 'cuisine', 'culinary', 'eating', 'restaurants', 'dining'],
+    'art': ['art', 'arts', 'artistic', 'gallery', 'galleries'],
+    'adventure': ['adventure', 'adventurous', 'hiking', 'outdoor', 'outdoors'],
+    'beach': ['beach', 'beaches', 'swimming', 'snorkeling', 'diving'],
+    'nightlife': ['nightlife', 'clubs', 'clubbing', 'bars', 'party', 'partying'],
+    'shopping': ['shopping', 'shop', 'shops', 'markets', 'market'],
+    'sports': ['sports', 'sport', 'game', 'games', 'stadium'],
+    'wine': ['wine', 'winery', 'wineries', 'vineyard', 'vineyards'],
+    'nature': ['nature', 'wildlife', 'national park', 'hiking', 'scenic']
+  };
+  
+  const interests = [];
+  for (const [interest, keywords] of Object.entries(interestKeywords)) {
+    for (const keyword of keywords) {
+      if (lower.includes(keyword)) {
+        interests.push(interest);
+        break;
+      }
+    }
+  }
+  
+  if (interests.length > 0) {
+    context.interests = [...new Set([...(context.interests || []), ...interests])];
+  }
+
+  logger.debug('Extracted context from user message', { 
+    userMessage: userMessage.substring(0, 50),
+    extractedContext: context 
+  });
 
   return context;
 }
+
+export default {
+  chatWithClaude,
+  extractContext
+};
