@@ -8,6 +8,75 @@ const VIATOR_API_BASE = 'https://api.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
 const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
 
+// ============================================================================
+// TAG MAPPING - Maps search terms to Viator tag IDs
+// See: https://partnerresources.viator.com/travel-commerce/tags/
+// ============================================================================
+
+const TAG_MAPPING = {
+  // Food & Drink
+  'food': 21911,
+  'food tour': 12053,
+  'food tours': 12053,
+  'culinary': 12053,
+  'dining': 11890,
+  'restaurant': 11890,
+  'eating': 12053,
+  'tasting': 12053,
+  'wine': 11933,
+  'beer': 11934,
+  'brewery': 11934,
+  'cooking': 11879,
+  'cooking class': 11879,
+  
+  // Tours & Sightseeing
+  'walking': 11938,
+  'walking tour': 11938,
+  'bus tour': 11930,
+  'hop on hop off': 11931,
+  'city tour': 11929,
+  'sightseeing': 21913,
+  'guided tour': 11929,
+  
+  // History & Culture
+  'history': 21914,
+  'historical': 21914,
+  'museum': 11877,
+  'art': 11876,
+  'culture': 21914,
+  'heritage': 21914,
+  
+  // Outdoor & Adventure
+  'adventure': 21909,
+  'outdoor': 21909,
+  'hiking': 11897,
+  'biking': 11898,
+  'bike': 11898,
+  'kayak': 11899,
+  'water': 21442,
+  'boat': 21701,
+  'sailing': 21701,
+  'cruise': 21701,
+  
+  // Entertainment
+  'nightlife': 11963,
+  'show': 11941,
+  'concert': 11941,
+  'theater': 11941,
+  'entertainment': 11941,
+  
+  // Family
+  'family': 21917,
+  'kids': 21917,
+  'children': 21917,
+  
+  // Quality tags
+  'top': 367652,
+  'best': 21972,
+  'popular': 22083,
+  'unique': 21074
+};
+
 // Cache for destinations
 let destinationsCache = null;
 let destinationsCacheTime = null;
@@ -18,6 +87,37 @@ export function clearDestinationCache() {
   destinationsCache = null;
   destinationsCacheTime = null;
   logger.info('Destination cache cleared');
+}
+
+// ============================================================================
+// GET TAGS FROM SEARCH TERMS
+// ============================================================================
+
+function getTagsFromSearchTerms(searchTerms) {
+  if (!searchTerms) return [];
+  
+  const terms = searchTerms.toLowerCase().trim();
+  const tags = [];
+  
+  // Check for exact matches first (longer phrases)
+  for (const [term, tagId] of Object.entries(TAG_MAPPING)) {
+    if (terms.includes(term)) {
+      if (!tags.includes(tagId)) {
+        tags.push(tagId);
+      }
+    }
+  }
+  
+  // Also check individual words
+  const words = terms.split(/\s+/);
+  for (const word of words) {
+    if (TAG_MAPPING[word] && !tags.includes(TAG_MAPPING[word])) {
+      tags.push(TAG_MAPPING[word]);
+    }
+  }
+  
+  logger.info(`Mapped search terms "${searchTerms}" to tags: [${tags.join(', ')}]`);
+  return tags;
 }
 
 // ============================================================================
@@ -293,11 +393,12 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
     return [];
   }
 
-  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})${filterTerms ? ` with filter: "${filterTerms}"` : ''}`);
+  // Get tags from search terms for API-level filtering
+  const tags = getTagsFromSearchTerms(filterTerms);
+  
+  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})${filterTerms ? ` with filter: "${filterTerms}"` : ''}${tags.length ? ` (tags: ${tags.join(', ')})` : ''}`);
 
-  // Fetch more results if we need to filter
-  const fetchCount = filterTerms ? Math.min(resultCount * 5, 50) : Math.min(resultCount, 20);
-
+  // Build the search body with tag filtering if available
   const searchBody = {
     filtering: {
       destination: destInfo.id
@@ -308,10 +409,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
     },
     pagination: {
       start: 1,
-      count: fetchCount
+      count: Math.min(resultCount * 2, 30) // Fetch extra in case some don't match
     },
     currency: 'USD'
   };
+
+  // Add tag filtering if we have matching tags
+  if (tags.length > 0) {
+    searchBody.filtering.tags = tags;
+    logger.info(`Using API tag filter: [${tags.join(', ')}]`);
+  }
 
   const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
     method: 'POST',
@@ -333,10 +440,47 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
   const data = await response.json();
   let products = data.products || [];
 
-  logger.info(`Fallback found ${products.length} tours for ${destination}`);
+  logger.info(`Fallback found ${products.length} tours for ${destination}${tags.length ? ' with tag filter' : ''}`);
 
-  // Apply client-side filtering if filter terms provided
-  if (filterTerms && products.length > 0) {
+  // If tag filtering returned 0 results, try again without tags
+  if (products.length === 0 && tags.length > 0) {
+    logger.info(`No results with tags, retrying without tag filter`);
+    
+    const retryBody = {
+      filtering: {
+        destination: destInfo.id
+      },
+      sorting: {
+        sort: 'TRAVELER_RATING',
+        order: 'DESCENDING'
+      },
+      pagination: {
+        start: 1,
+        count: Math.min(resultCount * 5, 50)
+      },
+      currency: 'USD'
+    };
+
+    const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(retryBody)
+    });
+
+    if (retryResponse.ok) {
+      const retryData = await retryResponse.json();
+      products = retryData.products || [];
+      logger.info(`Retry without tags found ${products.length} tours`);
+    }
+  }
+
+  // Apply client-side filtering if we have search terms but no tag results
+  if (filterTerms && products.length > 0 && tags.length === 0) {
     const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
     
     const filteredProducts = products.filter(product => {
@@ -348,7 +492,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
       return filterWords.some(word => searchText.includes(word));
     });
 
-    logger.info(`Filtered ${products.length} tours down to ${filteredProducts.length} matching "${filterTerms}"`);
+    logger.info(`Client-side filtered ${products.length} tours down to ${filteredProducts.length} matching "${filterTerms}"`);
 
     // Use filtered results if we found matches
     if (filteredProducts.length > 0) {
