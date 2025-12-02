@@ -1,8 +1,6 @@
 // ============================================================================
 // TOUR ROUTES
 // ============================================================================
-// API endpoints for searching and retrieving tour/activity data from Viator
-// ============================================================================
 
 import express from 'express';
 import { searchTours, getTourDetails, findDestination } from '../services/affiliates/viator.js';
@@ -11,47 +9,52 @@ import { logger } from '../utils/logger.js';
 const router = express.Router();
 
 // ============================================================================
-// SEARCH TOURS
+// POST /api/tours/search
 // ============================================================================
 
 /**
- * POST /api/tours/search
- * Search for tours at a destination
+ * Search for tours
  * 
  * Request body:
  * {
- *   destination: "Florence",
- *   startDate: "2025-09-15",  // optional
- *   endDate: "2025-09-22",    // optional
- *   adults: 2                  // optional, default 2
+ *   destination: "Boston",           // Required
+ *   searchTerms: "food brewery",     // Optional - filter by keywords
+ *   resultCount: 5,                  // Optional - number of results (default 10)
+ *   startDate: "2025-07-15",         // Optional
+ *   endDate: "2025-07-22"            // Optional
  * }
  */
 router.post('/search', async (req, res, next) => {
   try {
-    const { destination, startDate, endDate, adults = 2 } = req.body;
+    const { 
+      destination, 
+      searchTerms = '', 
+      resultCount = 10,
+      startDate, 
+      endDate 
+    } = req.body;
 
-    // Validate required fields
     if (!destination) {
       return res.status(400).json({ 
-        error: 'Missing required field: destination',
-        example: { destination: 'Florence', startDate: '2025-09-15', endDate: '2025-09-22' }
+        error: 'Missing required field: destination'
       });
     }
 
-    logger.info(`Tour search: ${destination}, ${startDate || 'flexible'} to ${endDate || 'flexible'}, ${adults} adults`);
+    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}`);
 
     const tours = await searchTours({
       destination,
+      searchTerms,
+      resultCount: Math.min(parseInt(resultCount) || 10, 20),
       startDate,
-      endDate,
-      adults
+      endDate
     });
 
-    logger.info(`Found ${tours.length} tours for ${destination}`);
+    logger.info(`Returning ${tours.length} tours`);
 
     res.json({ 
       tours,
-      searchParams: { destination, startDate, endDate, adults },
+      searchParams: { destination, searchTerms, resultCount },
       count: tours.length
     });
 
@@ -62,13 +65,9 @@ router.post('/search', async (req, res, next) => {
 });
 
 // ============================================================================
-// GET TOUR DETAILS
+// GET /api/tours/:productCode
 // ============================================================================
 
-/**
- * GET /api/tours/:productCode
- * Get details for a specific tour
- */
 router.get('/:productCode', async (req, res, next) => {
   try {
     const { productCode } = req.params;
@@ -77,10 +76,7 @@ router.get('/:productCode', async (req, res, next) => {
       return res.status(400).json({ error: 'Product code is required' });
     }
 
-    logger.info(`Tour details: ${productCode}`);
-
     const tour = await getTourDetails(productCode);
-
     res.json({ tour });
 
   } catch (error) {
@@ -90,13 +86,9 @@ router.get('/:productCode', async (req, res, next) => {
 });
 
 // ============================================================================
-// SEARCH DESTINATIONS
+// GET /api/tours/destinations/search
 // ============================================================================
 
-/**
- * GET /api/tours/destinations/search?q=Florence
- * Search for valid destination names
- */
 router.get('/destinations/search', async (req, res, next) => {
   try {
     const { q } = req.query;
@@ -107,11 +99,10 @@ router.get('/destinations/search', async (req, res, next) => {
 
     const destination = await findDestination(q);
 
-    if (!destination) {
-      return res.json({ destination: null, found: false });
-    }
-
-    res.json({ destination, found: true });
+    res.json({ 
+      destination, 
+      found: !!destination 
+    });
 
   } catch (error) {
     logger.error('Destination search error:', error);
