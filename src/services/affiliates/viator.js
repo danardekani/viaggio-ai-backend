@@ -191,6 +191,7 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
     },
     body: JSON.stringify({
       searchTerm: query,
+      searchTypes: [{ searchType: 'PRODUCTS' }],  // Required by Viator API
       currency: 'USD',
       pagination: {
         start: 1,
@@ -206,7 +207,10 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
   }
 
   const data = await response.json();
-  const products = data.products || [];
+  
+  // Freetext returns products nested under searchTypes
+  const productsResult = data.searchTypes?.find(t => t.searchType === 'PRODUCTS');
+  const products = productsResult?.products || data.products || [];
 
   logger.info(`Freetext found ${products.length} tours for "${query}"`);
   return products.map(p => formatTourResult(p));
