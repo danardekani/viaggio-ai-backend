@@ -175,30 +175,74 @@ export function extractContext(userMessage, existingContext = {}) {
   const lower = userMessage.toLowerCase();
   const context = { ...existingContext };
 
-  // Destinations
+  // Destinations - check longer names first, use word boundaries
   const destinations = [
-    'boston', 'new york', 'nyc', 'los angeles', 'la', 'san francisco', 'sf',
-    'las vegas', 'vegas', 'miami', 'orlando', 'chicago', 'seattle', 'san diego',
-    'washington', 'dc', 'new orleans', 'hawaii', 'honolulu', 'maui',
-    'florence', 'rome', 'venice', 'milan', 'paris', 'london',
-    'barcelona', 'madrid', 'amsterdam', 'berlin', 'munich', 'vienna', 'prague',
-    'lisbon', 'athens', 'santorini', 'dublin', 'tokyo', 'kyoto', 'osaka',
-    'bangkok', 'singapore', 'hong kong', 'sydney', 'melbourne', 'bali',
-    'cancun', 'dubai', 'cairo', 'cape town', 'rio de janeiro'
+    { name: 'Philadelphia', patterns: ['philadelphia', 'philly'] },
+    { name: 'San Francisco', patterns: ['san francisco', 'sf'] },
+    { name: 'Los Angeles', patterns: ['los angeles', 'la'] },
+    { name: 'New York', patterns: ['new york', 'nyc'] },
+    { name: 'Las Vegas', patterns: ['las vegas', 'vegas'] },
+    { name: 'Washington DC', patterns: ['washington dc', 'washington d.c.', 'dc'] },
+    { name: 'New Orleans', patterns: ['new orleans', 'nola'] },
+    { name: 'San Diego', patterns: ['san diego'] },
+    { name: 'Rio de Janeiro', patterns: ['rio de janeiro', 'rio'] },
+    { name: 'Hong Kong', patterns: ['hong kong'] },
+    { name: 'Cape Town', patterns: ['cape town'] },
+    { name: 'Boston', patterns: ['boston'] },
+    { name: 'Miami', patterns: ['miami'] },
+    { name: 'Orlando', patterns: ['orlando'] },
+    { name: 'Chicago', patterns: ['chicago'] },
+    { name: 'Seattle', patterns: ['seattle'] },
+    { name: 'Hawaii', patterns: ['hawaii', 'honolulu', 'maui'] },
+    { name: 'Florence', patterns: ['florence'] },
+    { name: 'Rome', patterns: ['rome'] },
+    { name: 'Venice', patterns: ['venice'] },
+    { name: 'Milan', patterns: ['milan'] },
+    { name: 'Paris', patterns: ['paris'] },
+    { name: 'London', patterns: ['london'] },
+    { name: 'Barcelona', patterns: ['barcelona'] },
+    { name: 'Madrid', patterns: ['madrid'] },
+    { name: 'Amsterdam', patterns: ['amsterdam'] },
+    { name: 'Berlin', patterns: ['berlin'] },
+    { name: 'Munich', patterns: ['munich'] },
+    { name: 'Vienna', patterns: ['vienna'] },
+    { name: 'Prague', patterns: ['prague'] },
+    { name: 'Lisbon', patterns: ['lisbon'] },
+    { name: 'Athens', patterns: ['athens'] },
+    { name: 'Santorini', patterns: ['santorini'] },
+    { name: 'Dublin', patterns: ['dublin'] },
+    { name: 'Tokyo', patterns: ['tokyo'] },
+    { name: 'Kyoto', patterns: ['kyoto'] },
+    { name: 'Osaka', patterns: ['osaka'] },
+    { name: 'Bangkok', patterns: ['bangkok'] },
+    { name: 'Singapore', patterns: ['singapore'] },
+    { name: 'Sydney', patterns: ['sydney'] },
+    { name: 'Melbourne', patterns: ['melbourne'] },
+    { name: 'Bali', patterns: ['bali'] },
+    { name: 'Cancun', patterns: ['cancun'] },
+    { name: 'Dubai', patterns: ['dubai'] },
+    { name: 'Cairo', patterns: ['cairo'] }
   ];
 
+  // Use word boundary matching for short patterns
   for (const dest of destinations) {
-    if (lower.includes(dest)) {
-      context.destination = dest.split(' ')
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-      if (dest === 'nyc') context.destination = 'New York';
-      if (dest === 'la') context.destination = 'Los Angeles';
-      if (dest === 'sf') context.destination = 'San Francisco';
-      if (dest === 'vegas') context.destination = 'Las Vegas';
-      if (dest === 'dc') context.destination = 'Washington DC';
-      break;
+    for (const pattern of dest.patterns) {
+      // For short patterns (2-3 chars), require word boundaries
+      if (pattern.length <= 3) {
+        const regex = new RegExp(`\\b${pattern}\\b`, 'i');
+        if (regex.test(lower)) {
+          context.destination = dest.name;
+          break;
+        }
+      } else {
+        // For longer patterns, simple includes is fine
+        if (lower.includes(pattern)) {
+          context.destination = dest.name;
+          break;
+        }
+      }
     }
+    if (context.destination && context.destination !== existingContext.destination) break;
   }
 
   // Travelers
