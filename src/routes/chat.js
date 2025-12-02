@@ -18,32 +18,10 @@ router.use(chatRateLimiter);
 // ============================================================================
 // POST /api/chat
 // ============================================================================
-// Main chat endpoint - sends user message to Claude and returns response
-// 
-// Request body:
-// {
-//   "messages": [...],        // Conversation history
-//   "context": {...}          // Current conversation context
-// }
-// 
-// Response:
-// {
-//   "message": "...",         // Claude's response text
-//   "command": "...",         // Special command (SHOW_FLIGHTS, etc.)
-//   "context": {...},         // Updated context
-//   "usage": {...}            // Token usage
-// }
-// ============================================================================
 
 router.post('/', async (req, res, next) => {
   try {
     const { messages, context = {} } = req.body;
-
-    // Clean messages - Claude API only accepts 'role' and 'content'
-    const cleanedMessages = messages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
 
     // Validate request
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -56,22 +34,36 @@ router.post('/', async (req, res, next) => {
       throw new ApiError(400, 'Last message must be from user');
     }
 
-    // Extract context from the latest message
-    const updatedContext = extractContext(lastUserMessage.content, context);
+    // Extract context from user message (fallback method)
+    const userExtractedContext = extractContext(lastUserMessage.content, context);
 
-    logger.debug('Processing chat request', {
+    // Clean messages - Claude API only accepts 'role' and 'content'
+    const cleanedMessages = messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    logger.info('Processing chat request', {
       messageCount: messages.length,
-      context: updatedContext
+      context: userExtractedContext
     });
 
-    // Get response from Claude
-    const response = await chatWithClaude(cleanedMessages, updatedContext);
+    // Get response from Claude (pass the extracted context)
+    const response = await chatWithClaude(cleanedMessages, userExtractedContext);
+
+    // Merge contexts: user-extracted + Claude-extracted (Claude takes priority)
+    const finalContext = {
+      ...userExtractedContext,
+      ...(response.extractedContext || {})
+    };
+
+    logger.info('Final context after merge', { finalContext });
 
     // Return response with updated context
     res.json({
       message: response.message,
       command: response.command,
-      context: updatedContext,
+      context: finalContext,
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
@@ -87,12 +79,9 @@ router.post('/', async (req, res, next) => {
 // ============================================================================
 // GET /api/chat/health
 // ============================================================================
-// Check if Claude API is accessible
-// ============================================================================
 
 router.get('/health', async (req, res, next) => {
   try {
-    // Simple test message to verify API key works
     const testMessages = [
       { role: 'user', content: 'Hello, are you working?' }
     ];
