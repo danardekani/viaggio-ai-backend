@@ -174,10 +174,11 @@ export async function searchTours({
 // ============================================================================
 
 async function searchToursWithTerms(destination, searchTerms, resultCount) {
-  // Combine destination and search terms for freetext search
-  const query = searchTerms 
-    ? `${destination} ${searchTerms}`.trim()
-    : `${destination} tours`;
+  // Use only first 2 search terms to avoid over-filtering
+  const terms = searchTerms.split(' ').slice(0, 2).join(' ');
+  const query = terms 
+    ? `${destination} ${terms}`.trim()
+    : destination;
 
   logger.info(`Freetext search: "${query}"`);
 
@@ -231,6 +232,13 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
   }
 
   logger.info(`Freetext found ${products.length} tours for "${query}"`);
+  
+  // If no results with search terms, try just the destination
+  if (products.length === 0 && terms) {
+    logger.info(`No results with terms, trying destination only: "${destination}"`);
+    return await searchToursWithTerms(destination, '', resultCount);
+  }
+  
   return products.map(p => formatTourResult(p));
 }
 
