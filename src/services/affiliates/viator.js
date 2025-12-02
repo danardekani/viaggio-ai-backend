@@ -272,12 +272,65 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
 
   logger.info(`Freetext found ${products.length} tours for "${query}"`);
   
-  // If no results with search terms, try just the destination
+  // If no results with search terms, fall back to destination-based search
   if (products.length === 0 && terms) {
-    logger.info(`No results with terms, trying destination only: "${destination}"`);
-    return await searchToursWithTerms(destination, '', resultCount);
+    logger.info(`No freetext results, falling back to destination ID search for: "${destination}"`);
+    return await searchByDestinationId(destination, resultCount);
   }
   
+  return products.map(p => formatTourResult(p));
+}
+
+// ============================================================================
+// SEARCH BY DESTINATION ID (Fallback)
+// ============================================================================
+
+async function searchByDestinationId(destination, resultCount) {
+  const destInfo = await findDestination(destination);
+  
+  if (!destInfo) {
+    logger.warn(`Destination not found for fallback: ${destination}`);
+    return [];
+  }
+
+  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})`);
+
+  const searchBody = {
+    filtering: {
+      destination: destInfo.id
+    },
+    sorting: {
+      sort: 'TRAVELER_RATING',
+      order: 'DESCENDING'
+    },
+    pagination: {
+      start: 1,
+      count: Math.min(resultCount, 20)
+    },
+    currency: 'USD'
+  };
+
+  const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+    method: 'POST',
+    headers: {
+      'exp-api-key': API_KEY,
+      'Accept': 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(searchBody)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error(`Viator fallback search error: ${response.status} - ${errorText}`);
+    return [];
+  }
+
+  const data = await response.json();
+  const products = data.products || [];
+
+  logger.info(`Fallback found ${products.length} tours for ${destination}`);
   return products.map(p => formatTourResult(p));
 }
 
