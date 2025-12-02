@@ -13,6 +13,13 @@ let destinationsCache = null;
 let destinationsCacheTime = null;
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// Clear cache function (for debugging)
+export function clearDestinationCache() {
+  destinationsCache = null;
+  destinationsCacheTime = null;
+  logger.info('Destination cache cleared');
+}
+
 // ============================================================================
 // FETCH DESTINATIONS
 // ============================================================================
@@ -20,10 +27,11 @@ const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 async function fetchDestinations() {
   if (destinationsCache && destinationsCacheTime && 
       (Date.now() - destinationsCacheTime) < CACHE_DURATION) {
+    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${Math.round((Date.now() - destinationsCacheTime) / 60000)} min ago)`);
     return destinationsCache;
   }
 
-  logger.info('Fetching destinations from Viator...');
+  logger.info('Fetching fresh destinations from Viator...');
 
   const response = await fetch(`${VIATOR_API_BASE}/destinations`, {
     method: 'GET',
@@ -54,6 +62,8 @@ export async function findDestination(query) {
   try {
     const destinations = await fetchDestinations();
     const normalizedQuery = query.toLowerCase().trim();
+    
+    logger.info(`Looking up destination: "${query}" (normalized: "${normalizedQuery}") in ${destinations.length} destinations`);
 
     // Try exact match first
     let match = destinations.find(dest => {
@@ -61,21 +71,23 @@ export async function findDestination(query) {
       return name === normalizedQuery;
     });
 
-    // Try includes match
+    // Try includes match (only if destination name contains the query)
     if (!match) {
       match = destinations.find(dest => {
         const name = (dest.destinationName || '').toLowerCase();
-        return name.includes(normalizedQuery) || normalizedQuery.includes(name);
+        return name.includes(normalizedQuery);
       });
     }
 
     if (match) {
+      logger.info(`Found destination: "${match.destinationName}" (ID: ${match.destinationId}) for query "${query}"`);
       return {
         id: match.destinationId.toString(),
         name: match.destinationName
       };
     }
 
+    logger.warn(`No destination found for query: "${query}"`);
     return null;
   } catch (error) {
     logger.error('Destination lookup error:', error.message);
@@ -121,6 +133,8 @@ export async function searchTours({
       logger.warn(`Destination not found: ${destination}, trying freetext`);
       return await searchToursWithTerms(destination, '', resultCount);
     }
+
+    logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search`);
 
     const searchBody = {
       filtering: {
