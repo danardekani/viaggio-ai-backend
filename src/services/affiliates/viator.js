@@ -65,25 +65,50 @@ export async function findDestination(query) {
     
     logger.info(`Looking up destination: "${query}" (normalized: "${normalizedQuery}") in ${destinations.length} destinations`);
 
+    // Debug: Show sample of destination structure
+    if (destinations.length > 0) {
+      logger.info(`Sample destination structure: ${JSON.stringify(destinations[0])}`);
+    }
+    
+    // Debug: Find any destinations containing the query
+    const partialMatches = destinations.filter(dest => {
+      const name = (dest.destinationName || dest.name || '').toLowerCase();
+      return name.includes(normalizedQuery);
+    });
+    
+    if (partialMatches.length > 0) {
+      logger.info(`Found ${partialMatches.length} partial matches for "${normalizedQuery}": ${partialMatches.slice(0, 5).map(d => d.destinationName || d.name).join(', ')}`);
+    } else {
+      // Try searching in other fields
+      const altMatches = destinations.filter(dest => {
+        return JSON.stringify(dest).toLowerCase().includes(normalizedQuery);
+      });
+      if (altMatches.length > 0) {
+        logger.info(`Found ${altMatches.length} matches in other fields: ${JSON.stringify(altMatches[0])}`);
+      }
+    }
+
     // Try exact match first
     let match = destinations.find(dest => {
-      const name = (dest.destinationName || '').toLowerCase();
+      const name = (dest.destinationName || dest.name || '').toLowerCase();
       return name === normalizedQuery;
     });
 
     // Try includes match (only if destination name contains the query)
     if (!match) {
       match = destinations.find(dest => {
-        const name = (dest.destinationName || '').toLowerCase();
+        const name = (dest.destinationName || dest.name || '').toLowerCase();
         return name.includes(normalizedQuery);
       });
     }
 
     if (match) {
-      logger.info(`Found destination: "${match.destinationName}" (ID: ${match.destinationId}) for query "${query}"`);
+      const id = match.destinationId || match.id;
+      const name = match.destinationName || match.name;
+      logger.info(`Found destination: "${name}" (ID: ${id}) for query "${query}"`);
       return {
-        id: match.destinationId.toString(),
-        name: match.destinationName
+        id: id.toString(),
+        name: name
       };
     }
 
