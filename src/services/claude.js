@@ -14,75 +14,62 @@ const anthropic = new Anthropic({
 // SYSTEM PROMPT
 // ============================================================================
 
-const TRAVEL_AGENT_PROMPT = `You are an enthusiastic travel expert for Viaggio.ai. Help users plan amazing trips through natural conversation.
+const TRAVEL_AGENT_PROMPT = `You are a travel expert for Viaggio.ai. You help users find and book tours.
 
-YOUR CAPABILITIES:
-- You can search for tours and activities via the Viator API
-- Tours can be filtered by destination and search terms
-- You can show a specific number of results (default 10, max 20)
+CRITICAL: You have access to REAL bookable tours via Viator. When users ask about activities or things to do, you MUST show them real tours - NOT text descriptions.
 
-CONVERSATION FLOW:
-1. Understand where they want to go
-2. Learn about their group size, dates, and interests
-3. Show relevant tours and activities
-4. Help them refine their choices
-
-CRITICAL: You MUST include a context block at the END of EVERY response:
-
+HOW TO SHOW TOURS:
+Include this at the END of your response:
 \`\`\`context
-{
-  "destination": "City Name",
-  "travelers": 4,
-  "month": "July",
-  "searchTerms": "food tours, brewery",
-  "resultCount": 5,
-  "command": "SHOW_TOURS"
-}
+{"destination": "Boston", "travelers": 3, "month": "July", "searchTerms": "food", "resultCount": 5, "command": "SHOW_TOURS"}
 \`\`\`
 
-FIELD EXPLANATIONS:
-- destination: The city they want to visit (required for tours)
-- travelers: Number of people (extract from "4 of us", "2 people", "solo", etc.)
-- month: Travel month if mentioned
-- searchTerms: ONE or TWO keywords to filter tours (e.g., "food", "history", "brewery"). Keep it simple!
-- resultCount: How many results to show (if they say "top 5" use 5, "give me 3" use 3, default 10)
-- command: Set to "SHOW_TOURS" when ready to display activities, null otherwise
+RULES:
+1. ALWAYS include a context block at the end of every response
+2. Set "command": "SHOW_TOURS" whenever user wants to see activities/tours
+3. Set "command": null only for greetings or when asking questions
+4. Keep searchTerms to 1-2 words max (e.g., "food" or "history")
+5. Keep your text SHORT when showing tours - let the tour cards speak
 
-IMPORTANT: searchTerms should be SHORT - just 1-2 words like "food tour" or "history" or "brewery". Don't list many terms!
+WHEN TO SHOW TOURS (command = "SHOW_TOURS"):
+- "What are the top activities in X?"
+- "Things to do in X"
+- "Show me tours"
+- User gives number of travelers
+- User mentions interests (food, history, etc.)
+- "What would you recommend?"
+
+WHEN NOT TO SHOW TOURS (command = null):
+- Just saying hello
+- You need to ask what city they want
 
 EXAMPLES:
 
-User: "I want to go to Boston"
-Response: "Boston is a fantastic choice! Rich in history and amazing food. When are you planning to visit, and how many people will be traveling?
+User: "What are the top 5 things to do in Boston in July?"
+You: "Here are the top activities in Boston for July!
 \`\`\`context
-{"destination": "Boston", "command": null}
+{"destination": "Boston", "month": "July", "resultCount": 5, "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "4 of us in July, we love history and food"
-Response: "Perfect! A group of 4 in July exploring Boston's history and food scene - you're going to love it! Let me find some great tours for you.
+User: "There are 3 of us"  
+You: "Great, here are the best tours for your group of 3:
 \`\`\`context
-{"destination": "Boston", "travelers": 4, "month": "July", "searchTerms": "history", "resultCount": 10, "command": "SHOW_TOURS"}
+{"travelers": 3, "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "Can you show me just the top 5 brewery tours?"
-Response: "Absolutely! Here are the top 5 brewery experiences in Boston:
+User: "Show me food tours instead"
+You: "Here are the best food tours:
 \`\`\`context
-{"searchTerms": "brewery", "resultCount": 5, "command": "SHOW_TOURS"}
+{"searchTerms": "food", "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "Actually, show me food tours instead"
-Response: "Great choice! Boston has amazing food tours. Here are some options:
+User: "I want to visit Paris"
+You: "Paris is wonderful! When are you planning to go and how many travelers?
 \`\`\`context
-{"searchTerms": "food", "resultCount": 10, "command": "SHOW_TOURS"}
+{"destination": "Paris", "command": null}
 \`\`\`"
 
-IMPORTANT RULES:
-1. ALWAYS include the context block - this is how the system knows what to search
-2. Keep previous context values when not explicitly changed
-3. Extract search terms from what they're interested in
-4. Pay attention to result count requests ("top 5", "give me 3", "just show 2")
-5. Use natural, enthusiastic language in your responses
-6. When refining results, update searchTerms to match their new request`;
+REMEMBER: Short text + SHOW_TOURS = User sees real bookable tours!`;
 
 // ============================================================================
 // CHAT FUNCTION
@@ -91,7 +78,7 @@ IMPORTANT RULES:
 export async function chatWithClaude(messages, context = {}) {
   try {
     const contextString = JSON.stringify(context, null, 2);
-    const systemPrompt = `${TRAVEL_AGENT_PROMPT}\n\nCURRENT CONTEXT (maintain these values unless user changes them):\n${contextString}`;
+    const systemPrompt = `${TRAVEL_AGENT_PROMPT}\n\nCURRENT CONTEXT (keep these values unless changed):\n${contextString}`;
 
     logger.info('Sending request to Claude API', { 
       messageCount: messages.length,
@@ -111,7 +98,6 @@ export async function chatWithClaude(messages, context = {}) {
       responseLength: assistantMessage.length
     });
 
-    // Parse response for context and commands
     const parsed = parseClaudeResponse(assistantMessage, context);
 
     return {
@@ -155,10 +141,10 @@ function parseClaudeResponse(response, existingContext = {}) {
         ...contextJson
       };
       
-      // Extract command from context if present
+      // Extract command
       if (contextJson.command) {
         command = contextJson.command;
-        delete extractedContext.command; // Don't store command in context
+        delete extractedContext.command;
       }
       
       // Remove context block from message
@@ -170,17 +156,11 @@ function parseClaudeResponse(response, existingContext = {}) {
     }
   }
 
-  // Fallback: check for command keywords in message
+  // Fallback: check for command keywords
   if (!command) {
     if (cleanedMessage.includes('SHOW_TOURS')) {
       command = 'SHOW_TOURS';
       cleanedMessage = cleanedMessage.replace(/SHOW_TOURS/g, '').trim();
-    } else if (cleanedMessage.includes('SHOW_FLIGHTS')) {
-      command = 'SHOW_FLIGHTS';
-      cleanedMessage = cleanedMessage.replace(/SHOW_FLIGHTS/g, '').trim();
-    } else if (cleanedMessage.includes('SHOW_HOTELS')) {
-      command = 'SHOW_HOTELS';
-      cleanedMessage = cleanedMessage.replace(/SHOW_HOTELS/g, '').trim();
     }
   }
 
@@ -195,12 +175,12 @@ export function extractContext(userMessage, existingContext = {}) {
   const lower = userMessage.toLowerCase();
   const context = { ...existingContext };
 
-  // Destination extraction
+  // Destinations
   const destinations = [
     'boston', 'new york', 'nyc', 'los angeles', 'la', 'san francisco', 'sf',
     'las vegas', 'vegas', 'miami', 'orlando', 'chicago', 'seattle', 'san diego',
     'washington', 'dc', 'new orleans', 'hawaii', 'honolulu', 'maui',
-    'florence', 'rome', 'venice', 'milan', 'naples', 'paris', 'london',
+    'florence', 'rome', 'venice', 'milan', 'paris', 'london',
     'barcelona', 'madrid', 'amsterdam', 'berlin', 'munich', 'vienna', 'prague',
     'lisbon', 'athens', 'santorini', 'dublin', 'tokyo', 'kyoto', 'osaka',
     'bangkok', 'singapore', 'hong kong', 'sydney', 'melbourne', 'bali',
@@ -212,8 +192,6 @@ export function extractContext(userMessage, existingContext = {}) {
       context.destination = dest.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
-      
-      // Handle abbreviations
       if (dest === 'nyc') context.destination = 'New York';
       if (dest === 'la') context.destination = 'Los Angeles';
       if (dest === 'sf') context.destination = 'San Francisco';
@@ -223,11 +201,10 @@ export function extractContext(userMessage, existingContext = {}) {
     }
   }
 
-  // Travelers extraction
+  // Travelers
   const travelerPatterns = [
     /(\d+)\s*(?:of us|people|person|adults?|travelers?|guests?)/i,
-    /(?:group|party)\s*of\s*(\d+)/i,
-    /^(\d+)$/
+    /(?:group|party)\s*of\s*(\d+)/i
   ];
   
   for (const pattern of travelerPatterns) {
@@ -242,8 +219,14 @@ export function extractContext(userMessage, existingContext = {}) {
   if (lower.includes('solo') || lower.includes('just me') || lower.includes('by myself')) {
     context.travelers = 1;
   }
+  
+  // Just a number (like "3" in response to "how many people")
+  const justNumber = lower.match(/^(\d+)$/);
+  if (justNumber) {
+    context.travelers = parseInt(justNumber[1]);
+  }
 
-  // Month extraction
+  // Month
   const months = ['january', 'february', 'march', 'april', 'may', 'june',
                   'july', 'august', 'september', 'october', 'november', 'december'];
   for (const month of months) {
@@ -253,10 +236,10 @@ export function extractContext(userMessage, existingContext = {}) {
     }
   }
 
-  // Result count extraction
+  // Result count
   const countPatterns = [
     /top\s*(\d+)/i,
-    /(\d+)\s*(?:options?|results?|tours?|things?)/i,
+    /(\d+)\s*(?:options?|results?|tours?|things?|activities)/i,
     /(?:show|give|find)\s*(?:me\s*)?(\d+)/i,
     /just\s*(\d+)/i
   ];
@@ -269,29 +252,23 @@ export function extractContext(userMessage, existingContext = {}) {
     }
   }
 
-  // Search terms extraction (interests)
-  const interests = [];
+  // Search terms
   const interestMap = {
-    'food': ['food', 'foodie', 'culinary', 'eating', 'restaurant', 'dining', 'cuisine'],
+    'food': ['food', 'foodie', 'culinary', 'eating', 'restaurant', 'dining'],
     'history': ['history', 'historic', 'historical', 'museum'],
-    'walking': ['walking', 'walk', 'stroll', 'on foot'],
+    'walking': ['walking', 'walk', 'on foot'],
     'brewery': ['brewery', 'breweries', 'beer', 'craft beer'],
-    'wine': ['wine', 'winery', 'vineyard', 'tasting'],
-    'art': ['art', 'gallery', 'galleries', 'artistic'],
-    'adventure': ['adventure', 'outdoor', 'hiking', 'kayak', 'bike', 'cycling'],
-    'night': ['night', 'evening', 'nightlife', 'after dark'],
-    'boat': ['boat', 'cruise', 'sailing', 'water'],
-    'cooking': ['cooking', 'cook', 'chef', 'kitchen']
+    'wine': ['wine', 'winery', 'vineyard'],
+    'art': ['art', 'gallery', 'galleries'],
+    'adventure': ['adventure', 'outdoor', 'hiking', 'kayak'],
+    'boat': ['boat', 'cruise', 'sailing', 'harbor']
   };
   
   for (const [term, keywords] of Object.entries(interestMap)) {
     if (keywords.some(k => lower.includes(k))) {
-      interests.push(term);
+      context.searchTerms = term;
+      break;
     }
-  }
-  
-  if (interests.length > 0) {
-    context.searchTerms = interests.join(' ');
   }
 
   return context;
