@@ -13,6 +13,7 @@ export const corsConfig = {
       // Test/Preview branches
       'https://viaggio-ai-git-viaggio-ai-frontend-test-danardekanis-projects.vercel.app',
       'https://viaggio-a7dvl0g3r-danardekanis-projects.vercel.app',
+      'https://viaggio-ai.vercel.app'
       
       'http://localhost:5173',  // Local development
       'http://localhost:3000'   // Alternative local port
