@@ -230,6 +230,7 @@ export async function findDestination(query) {
  * @param {string} params.destination - City name
  * @param {string} params.searchTerms - Keywords to filter by (e.g., "food brewery")
  * @param {number} params.resultCount - Number of results (default 10, max 20)
+ * @param {string} params.sortBy - Sort option: 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest'
  * @param {string} params.startDate - Optional start date
  * @param {string} params.endDate - Optional end date
  */
@@ -237,6 +238,7 @@ export async function searchTours({
   destination, 
   searchTerms = '', 
   resultCount = 10,
+  sortBy = 'popular',
   startDate, 
   endDate 
 }) {
@@ -244,34 +246,42 @@ export async function searchTours({
     throw new Error('VIATOR_API_KEY not configured');
   }
 
-  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}`);
+  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}`);
 
   try {
-    // If search terms provided, use freetext search
-    if (searchTerms && searchTerms.trim()) {
-      return await searchToursWithTerms(destination, searchTerms, resultCount);
+    // Check if we have tags for the search terms
+    const tags = getTagsFromSearchTerms(searchTerms);
+    
+    // For "reviews" sort, we need to fetch more and sort client-side
+    const needsClientSort = sortBy === 'reviews';
+    const fetchCount = needsClientSort ? 50 : Math.min(resultCount * 2, 30);
+    
+    // Get Viator sort option
+    const viatorSort = getViatorSort(sortBy);
+    
+    // If we have tags or need special sorting, use tag-based search
+    if (tags.length > 0 || searchTerms) {
+      logger.info(`Using tag-based search for "${searchTerms}" with tags [${tags.join(', ')}]`);
+      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy);
     }
 
     // Otherwise, use destination-based search
     const destInfo = await findDestination(destination);
     if (!destInfo) {
-      logger.warn(`Destination not found: ${destination}, trying freetext`);
-      return await searchToursWithTerms(destination, '', resultCount);
+      logger.warn(`Destination not found: ${destination}, trying tag-based search`);
+      return await searchByDestinationId(destination, resultCount, '', sortBy);
     }
 
-    logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search`);
+    logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search, sort: ${sortBy}`);
 
     const searchBody = {
       filtering: {
         destination: destInfo.id
       },
-      sorting: {
-        sort: 'TRAVELER_RATING',
-        order: 'DESCENDING'
-      },
+      sorting: viatorSort,
       pagination: {
         start: 1,
-        count: Math.min(resultCount, 20)
+        count: fetchCount
       },
       currency: 'USD'
     };
@@ -297,10 +307,21 @@ export async function searchTours({
     }
 
     const data = await response.json();
-    const products = data.products || [];
+    let products = data.products || [];
 
     logger.info(`Found ${products.length} tours for ${destination}`);
-    return products.map(p => formatTourResult(p));
+    
+    // Apply client-side sorting by review count if requested
+    if (needsClientSort && products.length > 0) {
+      products.sort((a, b) => {
+        const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
+        const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
+        return reviewsB - reviewsA; // Descending
+      });
+      logger.info(`Sorted by review count (top: ${products[0]?.reviews?.totalReviews || products[0]?.reviewCount || 0} reviews)`);
+    }
+    
+    return products.slice(0, resultCount).map(p => formatTourResult(p));
 
   } catch (error) {
     logger.error('Tour search error:', error.message);
@@ -382,10 +403,26 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
 }
 
 // ============================================================================
+// MAP SORT OPTIONS
+// ============================================================================
+
+function getViatorSort(sortBy) {
+  const sortMap = {
+    'popular': { sort: 'DEFAULT' },
+    'rating': { sort: 'TRAVELER_RATING', order: 'DESCENDING' },
+    'reviews': { sort: 'DEFAULT' }, // Will sort by reviewCount client-side
+    'price_low': { sort: 'PRICE', order: 'ASCENDING' },
+    'price_high': { sort: 'PRICE', order: 'DESCENDING' },
+    'newest': { sort: 'NEW_ON_VIATOR', order: 'ASCENDING' }
+  };
+  return sortMap[sortBy] || { sort: 'DEFAULT' };
+}
+
+// ============================================================================
 // SEARCH BY DESTINATION ID (Fallback with optional filtering)
 // ============================================================================
 
-async function searchByDestinationId(destination, resultCount, filterTerms = '') {
+async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular') {
   const destInfo = await findDestination(destination);
   
   if (!destInfo) {
@@ -396,20 +433,23 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
   // Get tags from search terms for API-level filtering
   const tags = getTagsFromSearchTerms(filterTerms);
   
-  logger.info(`Fallback: Using destination ID ${destInfo.id} (${destInfo.name})${filterTerms ? ` with filter: "${filterTerms}"` : ''}${tags.length ? ` (tags: ${tags.join(', ')})` : ''}`);
+  // For "reviews" sort, we need to fetch more and sort client-side
+  const needsClientSort = sortBy === 'reviews';
+  const fetchCount = needsClientSort ? 50 : Math.min(resultCount * 2, 30);
+  
+  const viatorSort = getViatorSort(sortBy);
+  
+  logger.info(`Fallback: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
   // Build the search body with tag filtering if available
   const searchBody = {
     filtering: {
       destination: destInfo.id
     },
-    sorting: {
-      sort: 'TRAVELER_RATING',
-      order: 'DESCENDING'
-    },
+    sorting: viatorSort,
     pagination: {
       start: 1,
-      count: Math.min(resultCount * 2, 30) // Fetch extra in case some don't match
+      count: fetchCount
     },
     currency: 'USD'
   };
@@ -450,13 +490,10 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
       filtering: {
         destination: destInfo.id
       },
-      sorting: {
-        sort: 'TRAVELER_RATING',
-        order: 'DESCENDING'
-      },
+      sorting: viatorSort,
       pagination: {
         start: 1,
-        count: Math.min(resultCount * 5, 50)
+        count: 50
       },
       currency: 'USD'
     };
@@ -500,6 +537,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '')
     } else {
       logger.info(`No tours matched filter "${filterTerms}", returning top-rated tours instead`);
     }
+  }
+
+  // Apply client-side sorting by review count if requested
+  if (needsClientSort && products.length > 0) {
+    products.sort((a, b) => {
+      const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
+      const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
+      return reviewsB - reviewsA; // Descending
+    });
+    logger.info(`Sorted ${products.length} tours by review count (top: ${products[0]?.reviews?.totalReviews || products[0]?.reviewCount || 0} reviews)`);
   }
 
   return products.slice(0, resultCount).map(p => formatTourResult(p));
