@@ -20,6 +20,7 @@ const router = express.Router();
  *   destination: "Boston",           // Required
  *   searchTerms: "food brewery",     // Optional - filter by keywords
  *   resultCount: 5,                  // Optional - number of results (default 10)
+ *   sortBy: "reviews",               // Optional - 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest'
  *   startDate: "2025-07-15",         // Optional
  *   endDate: "2025-07-22"            // Optional
  * }
@@ -30,6 +31,7 @@ router.post('/search', async (req, res, next) => {
       destination, 
       searchTerms = '', 
       resultCount = 10,
+      sortBy = 'popular',
       startDate, 
       endDate 
     } = req.body;
@@ -40,12 +42,13 @@ router.post('/search', async (req, res, next) => {
       });
     }
 
-    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}`);
+    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}`);
 
     const tours = await searchTours({
       destination,
       searchTerms,
       resultCount: Math.min(parseInt(resultCount) || 10, 20),
+      sortBy,
       startDate,
       endDate
     });
@@ -54,7 +57,7 @@ router.post('/search', async (req, res, next) => {
 
     res.json({ 
       tours,
-      searchParams: { destination, searchTerms, resultCount },
+      searchParams: { destination, searchTerms, resultCount, sortBy },
       count: tours.length
     });
 
