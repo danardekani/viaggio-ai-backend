@@ -44,9 +44,11 @@ FIELD EXPLANATIONS:
 - destination: The city they want to visit (required for tours)
 - travelers: Number of people (extract from "4 of us", "2 people", "solo", etc.)
 - month: Travel month if mentioned
-- searchTerms: Specific interests to filter tours (e.g., "food", "history", "walking tour", "brewery")
+- searchTerms: ONE or TWO keywords to filter tours (e.g., "food", "history", "brewery"). Keep it simple!
 - resultCount: How many results to show (if they say "top 5" use 5, "give me 3" use 3, default 10)
 - command: Set to "SHOW_TOURS" when ready to display activities, null otherwise
+
+IMPORTANT: searchTerms should be SHORT - just 1-2 words like "food tour" or "history" or "brewery". Don't list many terms!
 
 EXAMPLES:
 
@@ -59,19 +61,19 @@ Response: "Boston is a fantastic choice! Rich in history and amazing food. When 
 User: "4 of us in July, we love history and food"
 Response: "Perfect! A group of 4 in July exploring Boston's history and food scene - you're going to love it! Let me find some great tours for you.
 \`\`\`context
-{"destination": "Boston", "travelers": 4, "month": "July", "searchTerms": "history food", "resultCount": 10, "command": "SHOW_TOURS"}
+{"destination": "Boston", "travelers": 4, "month": "July", "searchTerms": "history", "resultCount": 10, "command": "SHOW_TOURS"}
 \`\`\`"
 
 User: "Can you show me just the top 5 brewery tours?"
 Response: "Absolutely! Here are the top 5 brewery experiences in Boston:
 \`\`\`context
-{"destination": "Boston", "travelers": 4, "month": "July", "searchTerms": "brewery", "resultCount": 5, "command": "SHOW_TOURS"}
+{"searchTerms": "brewery", "resultCount": 5, "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "Actually, show me walking tours instead"
-Response: "Great idea! Walking tours are the best way to explore. Here are some top walking tours:
+User: "Actually, show me food tours instead"
+Response: "Great choice! Boston has amazing food tours. Here are some options:
 \`\`\`context
-{"destination": "Boston", "travelers": 4, "month": "July", "searchTerms": "walking tour", "resultCount": 10, "command": "SHOW_TOURS"}
+{"searchTerms": "food", "resultCount": 10, "command": "SHOW_TOURS"}
 \`\`\`"
 
 IMPORTANT RULES:
