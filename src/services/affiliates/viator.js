@@ -210,9 +210,25 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
 
   const data = await response.json();
   
+  // Log the response structure to understand it
+  logger.info(`Freetext response keys: ${Object.keys(data).join(', ')}`);
+  
   // Freetext returns products nested under searchTypes
-  const productsResult = data.searchTypes?.find(t => t.searchType === 'PRODUCTS');
-  const products = productsResult?.products || data.products || [];
+  let products = [];
+  
+  if (data.products && Array.isArray(data.products)) {
+    // Direct products array
+    products = data.products;
+  } else if (data.searchTypes && Array.isArray(data.searchTypes)) {
+    // Nested under searchTypes
+    const productsResult = data.searchTypes.find(t => t.searchType === 'PRODUCTS');
+    if (productsResult?.products && Array.isArray(productsResult.products)) {
+      products = productsResult.products;
+    }
+  } else if (data.data && Array.isArray(data.data)) {
+    // Under data key
+    products = data.data;
+  }
 
   logger.info(`Freetext found ${products.length} tours for "${query}"`);
   return products.map(p => formatTourResult(p));
