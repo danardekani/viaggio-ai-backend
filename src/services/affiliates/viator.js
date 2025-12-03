@@ -779,6 +779,32 @@ function truncateText(text, maxLength) {
 }
 
 // ============================================================================
+// DEBUG: Search all destinations
+// ============================================================================
+
+export async function debugSearchDestinations(query) {
+  const destinations = await fetchDestinations();
+  const normalizedQuery = query.toLowerCase().trim();
+  
+  const matches = destinations.filter(dest => {
+    const name = (dest.name || '').toLowerCase();
+    return name.includes(normalizedQuery);
+  });
+  
+  return {
+    query,
+    totalDestinations: destinations.length,
+    matchCount: matches.length,
+    matches: matches.slice(0, 30).map(d => ({
+      id: d.destinationId,
+      name: d.name,
+      type: d.type,
+      parentId: d.parentDestinationId
+    }))
+  };
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -788,5 +814,6 @@ export default {
   searchTours,
   getTourDetails,
   findDestination,
-  fetchDestinations
+  fetchDestinations,
+  debugSearchDestinations
 };
