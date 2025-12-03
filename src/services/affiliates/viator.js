@@ -158,48 +158,156 @@ async function fetchDestinations() {
 // FIND DESTINATION
 // ============================================================================
 
+// Fallback mapping for smaller destinations to larger nearby areas
+const REGIONAL_FALLBACKS = {
+  // New York State
+  'lake placid': 'Adirondacks',
+  'adirondacks': 'New York State',
+  'saratoga springs': 'Albany',
+  'cooperstown': 'New York State',
+  'finger lakes': 'New York State',
+  'ithaca': 'New York State',
+  'catskills': 'New York State',
+  'hudson valley': 'New York State',
+  
+  // Maine
+  'portland, me': 'Portland',
+  'portland maine': 'Portland',
+  'bar harbor': 'Acadia National Park',
+  'acadia': 'Acadia National Park',
+  'kennebunkport': 'Maine',
+  'ogunquit': 'Maine',
+  'camden': 'Maine',
+  
+  // Vermont
+  'burlington': 'Vermont',
+  'stowe': 'Vermont',
+  'killington': 'Vermont',
+  'woodstock': 'Vermont',
+  
+  // New Hampshire
+  'white mountains': 'New Hampshire',
+  'north conway': 'New Hampshire',
+  'portsmouth': 'New Hampshire',
+  
+  // Other Northeast
+  'cape cod': 'Massachusetts',
+  'martha\'s vineyard': 'Massachusetts',
+  'nantucket': 'Massachusetts',
+  'berkshires': 'Massachusetts',
+  'newport': 'Rhode Island',
+  'providence': 'Rhode Island',
+  
+  // California
+  'napa': 'Napa Valley',
+  'sonoma': 'Napa Valley',
+  'carmel': 'Monterey',
+  'big sur': 'Monterey',
+  'lake tahoe': 'Lake Tahoe',
+  'palm springs': 'Palm Springs',
+  'santa barbara': 'Santa Barbara',
+  
+  // Florida
+  'key west': 'Key West',
+  'fort lauderdale': 'Fort Lauderdale',
+  'naples': 'Naples',
+  'sarasota': 'Sarasota',
+  'clearwater': 'Tampa',
+  'st augustine': 'St. Augustine',
+  
+  // Southwest
+  'sedona': 'Sedona',
+  'scottsdale': 'Phoenix',
+  'santa fe': 'Santa Fe',
+  'taos': 'Santa Fe',
+  'moab': 'Moab',
+  'park city': 'Salt Lake City',
+  
+  // Pacific Northwest  
+  'bend': 'Oregon',
+  'olympic national park': 'Seattle',
+  'mt rainier': 'Seattle',
+  
+  // Southeast
+  'asheville': 'Asheville',
+  'charleston': 'Charleston',
+  'savannah': 'Savannah',
+  'hilton head': 'Savannah',
+  'outer banks': 'North Carolina',
+  
+  // Other
+  'jackson hole': 'Jackson Hole',
+  'yellowstone': 'Yellowstone National Park',
+  'grand canyon': 'Grand Canyon National Park',
+  'zion': 'Zion National Park',
+  'yosemite': 'Yosemite National Park',
+  'glacier': 'Glacier National Park'
+};
+
+// State abbreviations to full names
+const STATE_ABBREVS = {
+  'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
+  'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
+  'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
+  'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
+  'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
+  'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
+  'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
+  'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
+  'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
+  'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
+  'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
+  'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
+  'wi': 'wisconsin', 'wy': 'wyoming', 'dc': 'washington dc'
+};
+
+// Clean destination name - remove state abbreviations, normalize
+function cleanDestinationName(query) {
+  let cleaned = query.trim();
+  
+  // Remove state abbreviations like ", ME" or ", CA"
+  cleaned = cleaned.replace(/,\s*([a-z]{2})$/i, (match, abbrev) => {
+    const state = STATE_ABBREVS[abbrev.toLowerCase()];
+    logger.info(`Stripped state abbreviation: "${match}" (${state || 'unknown'})`);
+    return '';
+  });
+  
+  // Remove full state names after comma
+  cleaned = cleaned.replace(/,\s*(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming)$/i, '');
+  
+  return cleaned.trim();
+}
+
 export async function findDestination(query) {
   try {
     const destinations = await fetchDestinations();
-    const normalizedQuery = query.toLowerCase().trim();
+    const cleanedQuery = cleanDestinationName(query);
+    const normalizedQuery = cleanedQuery.toLowerCase().trim();
     
-    logger.info(`Looking up destination: "${query}" (normalized: "${normalizedQuery}") in ${destinations.length} destinations`);
+    logger.info(`Looking up destination: "${query}" -> cleaned: "${cleanedQuery}" -> normalized: "${normalizedQuery}"`);
 
     // Debug: Show sample of destination structure
-    if (destinations.length > 0) {
+    if (destinations.length > 0 && !destinationsCache) {
       logger.info(`Sample destination structure: ${JSON.stringify(destinations[0])}`);
     }
     
-    // Debug: Find any destinations containing the query
-    const partialMatches = destinations.filter(dest => {
-      const name = (dest.destinationName || dest.name || '').toLowerCase();
-      return name.includes(normalizedQuery);
-    });
+    // Try to find the destination
+    let match = findDestinationMatch(destinations, normalizedQuery);
     
-    if (partialMatches.length > 0) {
-      logger.info(`Found ${partialMatches.length} partial matches for "${normalizedQuery}": ${partialMatches.slice(0, 5).map(d => d.destinationName || d.name).join(', ')}`);
-    } else {
-      // Try searching in other fields
-      const altMatches = destinations.filter(dest => {
-        return JSON.stringify(dest).toLowerCase().includes(normalizedQuery);
-      });
-      if (altMatches.length > 0) {
-        logger.info(`Found ${altMatches.length} matches in other fields: ${JSON.stringify(altMatches[0])}`);
-      }
+    // If no match, try regional fallback
+    if (!match && REGIONAL_FALLBACKS[normalizedQuery]) {
+      const fallbackName = REGIONAL_FALLBACKS[normalizedQuery];
+      logger.info(`No match for "${normalizedQuery}", trying regional fallback: "${fallbackName}"`);
+      match = findDestinationMatch(destinations, fallbackName.toLowerCase());
     }
-
-    // Try exact match first
-    let match = destinations.find(dest => {
-      const name = (dest.destinationName || dest.name || '').toLowerCase();
-      return name === normalizedQuery;
-    });
-
-    // Try includes match (only if destination name contains the query)
-    if (!match) {
-      match = destinations.find(dest => {
-        const name = (dest.destinationName || dest.name || '').toLowerCase();
-        return name.includes(normalizedQuery);
-      });
+    
+    // If still no match, try just the first word (for "Lake Placid" -> "Lake")
+    if (!match && normalizedQuery.includes(' ')) {
+      const firstWord = normalizedQuery.split(' ')[0];
+      if (firstWord.length > 3) {
+        logger.info(`Trying first word fallback: "${firstWord}"`);
+        match = findDestinationMatch(destinations, firstWord);
+      }
     }
 
     if (match) {
@@ -212,12 +320,42 @@ export async function findDestination(query) {
       };
     }
 
-    logger.warn(`No destination found for query: "${query}"`);
+    // Log helpful debugging info
+    logger.warn(`No destination found for: "${query}"`);
+    logger.info(`Try checking Viator directly for available tours in this area`);
+    
     return null;
   } catch (error) {
     logger.error('Destination lookup error:', error.message);
     return null;
   }
+}
+
+// Helper function to find destination match
+function findDestinationMatch(destinations, query) {
+  // Try exact match first
+  let match = destinations.find(dest => {
+    const name = (dest.destinationName || dest.name || '').toLowerCase();
+    return name === query;
+  });
+
+  // Try includes match (destination name contains the query)
+  if (!match) {
+    match = destinations.find(dest => {
+      const name = (dest.destinationName || dest.name || '').toLowerCase();
+      return name.includes(query);
+    });
+  }
+  
+  // Try query contains destination name (e.g., "portland maine" includes "portland")
+  if (!match) {
+    match = destinations.find(dest => {
+      const name = (dest.destinationName || dest.name || '').toLowerCase();
+      return query.includes(name) && name.length > 3;
+    });
+  }
+
+  return match;
 }
 
 // ============================================================================
