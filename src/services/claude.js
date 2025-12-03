@@ -21,7 +21,7 @@ CRITICAL: You have access to REAL bookable tours via Viator. When users ask abou
 HOW TO SHOW TOURS:
 Include this at the END of your response:
 \`\`\`context
-{"destination": "Boston", "travelers": 3, "month": "July", "searchTerms": "food", "resultCount": 5, "command": "SHOW_TOURS"}
+{"destination": "Boston", "travelers": 3, "month": "July", "startDate": "2025-07-15", "endDate": "2025-07-22", "searchTerms": "food", "resultCount": 5, "command": "SHOW_TOURS"}
 \`\`\`
 
 RULES:
@@ -31,6 +31,13 @@ RULES:
 4. Keep searchTerms to 1-2 words max (e.g., "food" or "history")
 5. Keep your text SHORT when showing tours - let the tour cards speak
 6. Set sortBy based on user preference: "reviews", "rating", "price_low", "price_high", "newest", or "popular" (default)
+7. When user provides travel dates, include startDate and endDate in YYYY-MM-DD format
+
+DATE HANDLING:
+- When user gives specific dates like "July 15-22" or "December 10 to 15", convert to startDate/endDate
+- Use YYYY-MM-DD format (e.g., "2025-07-15")
+- If user says "next month" or just a month name, estimate reasonable dates
+- Today's date is ${new Date().toISOString().split('T')[0]}
 
 SORTBY OPTIONS:
 - "popular" (default) - Most popular/featured tours
@@ -88,6 +95,18 @@ User: "I want to visit Paris"
 You: "Paris is wonderful! When are you planning to go and how many travelers?
 \`\`\`context
 {"destination": "Paris", "command": null}
+\`\`\`"
+
+User: "We're going July 15-22"
+You: "Perfect! Here are tours available for your dates:
+\`\`\`context
+{"startDate": "2025-07-15", "endDate": "2025-07-22", "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "What about December 10th to the 15th?"
+You: "Here are tours for December 10-15:
+\`\`\`context
+{"startDate": "2025-12-10", "endDate": "2025-12-15", "command": "SHOW_TOURS"}
 \`\`\`"
 
 REMEMBER: Short text + SHOW_TOURS = User sees real bookable tours!`;
@@ -349,7 +368,133 @@ export function extractContext(userMessage, existingContext = {}) {
     context.sortBy = 'newest';
   }
 
+  // Date extraction
+  const dates = extractDates(userMessage, context.month);
+  if (dates.startDate) context.startDate = dates.startDate;
+  if (dates.endDate) context.endDate = dates.endDate;
+
   return context;
+}
+
+// ============================================================================
+// DATE EXTRACTION HELPER
+// ============================================================================
+
+function extractDates(message, contextMonth) {
+  const lower = message.toLowerCase();
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+                      'july', 'august', 'september', 'october', 'november', 'december'];
+  const monthAbbrev = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 
+                       'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  
+  // Helper to get month number (0-11)
+  const getMonthNum = (monthStr) => {
+    const m = monthStr.toLowerCase();
+    let idx = monthNames.findIndex(name => name.startsWith(m));
+    if (idx === -1) idx = monthAbbrev.findIndex(abbr => m.startsWith(abbr));
+    return idx;
+  };
+  
+  // Helper to format date as YYYY-MM-DD
+  const formatDate = (year, month, day) => {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+  
+  // Helper to determine year (use next year if month has passed)
+  const getYear = (monthNum) => {
+    return monthNum < today.getMonth() ? currentYear + 1 : currentYear;
+  };
+  
+  let startDate = null;
+  let endDate = null;
+  
+  // Pattern 1: "July 15-22" or "July 15 - 22" or "July 15 to 22"
+  const rangePattern1 = /(\w+)\s+(\d{1,2})\s*[-–to]+\s*(\d{1,2})/i;
+  const match1 = message.match(rangePattern1);
+  if (match1) {
+    const monthNum = getMonthNum(match1[1]);
+    if (monthNum !== -1) {
+      const year = getYear(monthNum);
+      startDate = formatDate(year, monthNum, parseInt(match1[2]));
+      endDate = formatDate(year, monthNum, parseInt(match1[3]));
+    }
+  }
+  
+  // Pattern 2: "July 15 to July 22" or "July 15th to July 22nd"
+  const rangePattern2 = /(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?\s*(?:to|through|-|–)\s*(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?/i;
+  const match2 = message.match(rangePattern2);
+  if (match2 && !startDate) {
+    const monthNum1 = getMonthNum(match2[1]);
+    const monthNum2 = getMonthNum(match2[3]);
+    if (monthNum1 !== -1 && monthNum2 !== -1) {
+      const year1 = getYear(monthNum1);
+      const year2 = monthNum2 < monthNum1 ? year1 + 1 : year1;
+      startDate = formatDate(year1, monthNum1, parseInt(match2[2]));
+      endDate = formatDate(year2, monthNum2, parseInt(match2[4]));
+    }
+  }
+  
+  // Pattern 3: "15th to 22nd" or "10-15" (uses context month or next occurrence)
+  const rangePattern3 = /\b(\d{1,2})(?:st|nd|rd|th)?\s*(?:to|through|-|–)\s*(\d{1,2})(?:st|nd|rd|th)?\b/i;
+  const match3 = message.match(rangePattern3);
+  if (match3 && !startDate) {
+    let monthNum = today.getMonth();
+    if (contextMonth) {
+      const ctxMonth = getMonthNum(contextMonth);
+      if (ctxMonth !== -1) monthNum = ctxMonth;
+    }
+    const year = getYear(monthNum);
+    startDate = formatDate(year, monthNum, parseInt(match3[1]));
+    endDate = formatDate(year, monthNum, parseInt(match3[2]));
+  }
+  
+  // Pattern 4: Single date "July 15" or "July 15th" (set as start date, end = start + 1 day)
+  const singleDatePattern = /(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?(?!\s*[-–to]|\s*\d)/i;
+  const match4 = message.match(singleDatePattern);
+  if (match4 && !startDate) {
+    const monthNum = getMonthNum(match4[1]);
+    if (monthNum !== -1) {
+      const year = getYear(monthNum);
+      const day = parseInt(match4[2]);
+      startDate = formatDate(year, monthNum, day);
+      // Default to same day if no end date
+      endDate = startDate;
+    }
+  }
+  
+  // Pattern 5: "this weekend"
+  if (lower.includes('this weekend') && !startDate) {
+    const saturday = new Date(today);
+    const dayOfWeek = today.getDay();
+    saturday.setDate(today.getDate() + (6 - dayOfWeek));
+    const sunday = new Date(saturday);
+    sunday.setDate(saturday.getDate() + 1);
+    startDate = formatDate(saturday.getFullYear(), saturday.getMonth(), saturday.getDate());
+    endDate = formatDate(sunday.getFullYear(), sunday.getMonth(), sunday.getDate());
+  }
+  
+  // Pattern 6: "next week"
+  if (lower.includes('next week') && !startDate) {
+    const nextMonday = new Date(today);
+    nextMonday.setDate(today.getDate() + (8 - today.getDay()));
+    const nextSunday = new Date(nextMonday);
+    nextSunday.setDate(nextMonday.getDate() + 6);
+    startDate = formatDate(nextMonday.getFullYear(), nextMonday.getMonth(), nextMonday.getDate());
+    endDate = formatDate(nextSunday.getFullYear(), nextSunday.getMonth(), nextSunday.getDate());
+  }
+  
+  // Pattern 7: "next month"
+  if (lower.includes('next month') && !startDate) {
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    startDate = formatDate(nextMonth.getFullYear(), nextMonth.getMonth(), 1);
+    endDate = formatDate(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate());
+  }
+  
+  return { startDate, endDate };
 }
 
 export default { chatWithClaude, extractContext };
