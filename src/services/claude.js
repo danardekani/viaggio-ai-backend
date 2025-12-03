@@ -221,6 +221,7 @@ export function extractContext(userMessage, existingContext = {}) {
     { name: 'Lake Placid', patterns: ['lake placid'] },
     { name: 'Bar Harbor', patterns: ['bar harbor'] },
     { name: 'Portland, ME', patterns: ['portland, me', 'portland maine', 'portland, maine'] },
+    { name: 'Portland, OR', patterns: ['portland, or', 'portland oregon', 'portland, oregon'] },
     { name: 'Philadelphia', patterns: ['philadelphia', 'philly'] },
     { name: 'San Francisco', patterns: ['san francisco', 'sf'] },
     { name: 'Los Angeles', patterns: ['los angeles', 'la'] },
