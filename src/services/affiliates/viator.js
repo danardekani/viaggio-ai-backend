@@ -159,42 +159,54 @@ async function fetchDestinations() {
 // ============================================================================
 
 // Fallback mapping for smaller destinations to larger nearby areas
+// Use EXACT Viator destination names!
 const REGIONAL_FALLBACKS = {
-  // New York State
-  'lake placid': 'Adirondacks',
-  'adirondacks': 'New York State',
+  // New York State - Viator has "The Adirondacks" (ID: 50780), "Lake George" (ID: 23787)
+  'lake placid': 'The Adirondacks',
+  'adirondacks': 'The Adirondacks',
+  'the adirondacks': 'The Adirondacks',
   'saratoga springs': 'Albany',
-  'cooperstown': 'New York State',
-  'finger lakes': 'New York State',
-  'ithaca': 'New York State',
-  'catskills': 'New York State',
-  'hudson valley': 'New York State',
+  'saratoga': 'Albany',
+  'cooperstown': 'New York',
+  'finger lakes': 'New York',
+  'ithaca': 'New York',
+  'catskills': 'New York',
+  'catskill': 'New York',
+  'hudson valley': 'New York',
+  'woodstock ny': 'New York',
   
-  // Maine
-  'portland, me': 'Portland',
-  'portland maine': 'Portland',
-  'bar harbor': 'Acadia National Park',
-  'acadia': 'Acadia National Park',
+  // Maine - Viator has "Maine" (ID: 21458), "Portland" under Maine (ID: 4382)
+  'bar harbor': 'Maine',
+  'acadia': 'Maine',
+  'acadia national park': 'Maine',
   'kennebunkport': 'Maine',
   'ogunquit': 'Maine',
   'camden': 'Maine',
+  'boothbay': 'Maine',
+  'freeport': 'Maine',
   
-  // Vermont
+  // Vermont - check if Viator has Vermont
   'burlington': 'Vermont',
   'stowe': 'Vermont',
   'killington': 'Vermont',
-  'woodstock': 'Vermont',
+  'woodstock vt': 'Vermont',
+  'montpelier': 'Vermont',
   
   // New Hampshire
   'white mountains': 'New Hampshire',
   'north conway': 'New Hampshire',
-  'portsmouth': 'New Hampshire',
+  'portsmouth nh': 'New Hampshire',
+  'lake winnipesaukee': 'New Hampshire',
   
-  // Other Northeast
+  // Massachusetts
   'cape cod': 'Massachusetts',
   'martha\'s vineyard': 'Massachusetts',
   'nantucket': 'Massachusetts',
   'berkshires': 'Massachusetts',
+  'salem': 'Massachusetts',
+  'plymouth': 'Massachusetts',
+  
+  // Rhode Island
   'newport': 'Rhode Island',
   'providence': 'Rhode Island',
   
@@ -203,9 +215,10 @@ const REGIONAL_FALLBACKS = {
   'sonoma': 'Napa Valley',
   'carmel': 'Monterey',
   'big sur': 'Monterey',
-  'lake tahoe': 'Lake Tahoe',
   'palm springs': 'Palm Springs',
   'santa barbara': 'Santa Barbara',
+  'mammoth': 'Mammoth Lakes',
+  'mammoth lakes': 'Mammoth Lakes',
   
   // Florida
   'key west': 'Key West',
@@ -278,35 +291,86 @@ function cleanDestinationName(query) {
   return cleaned.trim();
 }
 
+// State parent IDs in Viator (discovered via debug endpoint)
+const STATE_PARENT_IDS = {
+  'maine': 21458,
+  'me': 21458,
+  'oregon': 5064,
+  'or': 5064,
+  'new york': 5560,
+  'ny': 5560,
+  'california': 272,
+  'ca': 272,
+  'florida': 270,
+  'fl': 270,
+  'massachusetts': 274,
+  'ma': 274,
+  'texas': 283,
+  'tx': 283,
+  // Add more as needed
+};
+
+// Extract state context from query (before cleaning)
+function extractStateContext(query) {
+  const lower = query.toLowerCase();
+  
+  // Check for state abbreviations like ", ME" or ", OR"
+  const abbrevMatch = lower.match(/,\s*([a-z]{2})$/);
+  if (abbrevMatch) {
+    const abbrev = abbrevMatch[1];
+    if (STATE_PARENT_IDS[abbrev]) {
+      return { stateAbbrev: abbrev, parentId: STATE_PARENT_IDS[abbrev] };
+    }
+  }
+  
+  // Check for full state names
+  for (const [state, parentId] of Object.entries(STATE_PARENT_IDS)) {
+    if (state.length > 2 && lower.includes(state)) {
+      return { stateName: state, parentId };
+    }
+  }
+  
+  return null;
+}
+
 export async function findDestination(query) {
   try {
     const destinations = await fetchDestinations();
+    
+    // Extract state context BEFORE cleaning (so we know if user said "Portland, ME")
+    const stateContext = extractStateContext(query);
+    
     const cleanedQuery = cleanDestinationName(query);
     const normalizedQuery = cleanedQuery.toLowerCase().trim();
     
-    logger.info(`Looking up destination: "${query}" -> cleaned: "${cleanedQuery}" -> normalized: "${normalizedQuery}"`);
+    logger.info(`Looking up destination: "${query}" -> cleaned: "${cleanedQuery}" -> normalized: "${normalizedQuery}"${stateContext ? ` (state context: parentId=${stateContext.parentId})` : ''}`);
 
-    // Debug: Show sample of destination structure
-    if (destinations.length > 0 && !destinationsCache) {
-      logger.info(`Sample destination structure: ${JSON.stringify(destinations[0])}`);
-    }
-    
-    // Try to find the destination
-    let match = findDestinationMatch(destinations, normalizedQuery);
+    // Try to find the destination with state context if available
+    let match = findDestinationMatch(destinations, normalizedQuery, stateContext);
     
     // If no match, try regional fallback
     if (!match && REGIONAL_FALLBACKS[normalizedQuery]) {
       const fallbackName = REGIONAL_FALLBACKS[normalizedQuery];
       logger.info(`No match for "${normalizedQuery}", trying regional fallback: "${fallbackName}"`);
-      match = findDestinationMatch(destinations, fallbackName.toLowerCase());
+      match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null);
     }
     
-    // If still no match, try just the first word (for "Lake Placid" -> "Lake")
-    if (!match && normalizedQuery.includes(' ')) {
-      const firstWord = normalizedQuery.split(' ')[0];
-      if (firstWord.length > 3) {
-        logger.info(`Trying first word fallback: "${firstWord}"`);
-        match = findDestinationMatch(destinations, firstWord);
+    // Also try the original query with state in the fallbacks (e.g., "portland, me")
+    if (!match) {
+      const originalNormalized = query.toLowerCase().trim();
+      if (REGIONAL_FALLBACKS[originalNormalized]) {
+        const fallbackName = REGIONAL_FALLBACKS[originalNormalized];
+        logger.info(`Trying original query fallback: "${originalNormalized}" -> "${fallbackName}"`);
+        match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null);
+      }
+    }
+    
+    // If still no match and we have state context, try the state/region itself
+    if (!match && stateContext) {
+      const stateName = stateContext.stateName || STATE_ABBREVS[stateContext.stateAbbrev];
+      if (stateName) {
+        logger.info(`Trying state fallback: "${stateName}"`);
+        match = findDestinationMatch(destinations, stateName.toLowerCase(), null);
       }
     }
 
@@ -322,7 +386,6 @@ export async function findDestination(query) {
 
     // Log helpful debugging info
     logger.warn(`No destination found for: "${query}"`);
-    logger.info(`Try checking Viator directly for available tours in this area`);
     
     return null;
   } catch (error) {
@@ -332,30 +395,54 @@ export async function findDestination(query) {
 }
 
 // Helper function to find destination match
-function findDestinationMatch(destinations, query) {
+// stateContext: { parentId: number } - if provided, prefer matches with this parent
+function findDestinationMatch(destinations, query, stateContext = null) {
   // Try exact match first
-  let match = destinations.find(dest => {
+  let matches = destinations.filter(dest => {
     const name = (dest.destinationName || dest.name || '').toLowerCase();
     return name === query;
   });
 
   // Try includes match (destination name contains the query)
-  if (!match) {
-    match = destinations.find(dest => {
+  if (matches.length === 0) {
+    matches = destinations.filter(dest => {
       const name = (dest.destinationName || dest.name || '').toLowerCase();
       return name.includes(query);
     });
   }
   
   // Try query contains destination name (e.g., "portland maine" includes "portland")
-  if (!match) {
-    match = destinations.find(dest => {
+  if (matches.length === 0) {
+    matches = destinations.filter(dest => {
       const name = (dest.destinationName || dest.name || '').toLowerCase();
       return query.includes(name) && name.length > 3;
     });
   }
-
-  return match;
+  
+  // No matches found
+  if (matches.length === 0) {
+    return null;
+  }
+  
+  // Single match - return it
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  
+  // Multiple matches - try to disambiguate
+  logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
+  
+  // If we have state context, prefer match with correct parent
+  if (stateContext && stateContext.parentId) {
+    const stateMatch = matches.find(m => m.parentDestinationId === stateContext.parentId);
+    if (stateMatch) {
+      logger.info(`Disambiguated to "${stateMatch.name}" based on state context (parent: ${stateContext.parentId})`);
+      return stateMatch;
+    }
+  }
+  
+  // Default to first match (usually the more popular one)
+  return matches[0];
 }
 
 // ============================================================================
