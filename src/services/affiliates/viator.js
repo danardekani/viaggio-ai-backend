@@ -455,9 +455,15 @@ function findDestinationMatch(destinations, query, stateContext = null) {
  * @param {string} params.destination - City name
  * @param {string} params.searchTerms - Keywords to filter by (e.g., "food brewery")
  * @param {number} params.resultCount - Number of results (default 10, max 20)
- * @param {string} params.sortBy - Sort option: 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest'
- * @param {string} params.startDate - Optional start date
- * @param {string} params.endDate - Optional end date
+ * @param {string} params.sortBy - Sort option: 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'
+ * @param {string} params.startDate - Optional start date (YYYY-MM-DD)
+ * @param {string} params.endDate - Optional end date (YYYY-MM-DD)
+ * @param {Array} params.flags - Optional flags: FREE_CANCELLATION, SKIP_THE_LINE, PRIVATE_TOUR, LIKELY_TO_SELL_OUT, SPECIAL_OFFER
+ * @param {number} params.minPrice - Optional minimum price
+ * @param {number} params.maxPrice - Optional maximum price
+ * @param {number} params.minDuration - Optional minimum duration in minutes
+ * @param {number} params.maxDuration - Optional maximum duration in minutes
+ * @param {number} params.minRating - Optional minimum rating (1-5)
  */
 export async function searchTours({ 
   destination, 
@@ -465,13 +471,27 @@ export async function searchTours({
   resultCount = 10,
   sortBy = 'popular',
   startDate, 
-  endDate 
+  endDate,
+  flags = [],
+  minPrice,
+  maxPrice,
+  minDuration,
+  maxDuration,
+  minRating
 }) {
   if (!API_KEY) {
     throw new Error('VIATOR_API_KEY not configured');
   }
 
-  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}, dates: ${startDate || 'none'} to ${endDate || 'none'}`);
+  // Build filters summary for logging
+  const filterSummary = [];
+  if (startDate || endDate) filterSummary.push(`dates: ${startDate || 'any'} to ${endDate || 'any'}`);
+  if (flags.length > 0) filterSummary.push(`flags: ${flags.join(',')}`);
+  if (minPrice || maxPrice) filterSummary.push(`price: ${minPrice || 0}-${maxPrice || '∞'}`);
+  if (minDuration || maxDuration) filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
+  if (minRating) filterSummary.push(`rating: ${minRating}+`);
+
+  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
 
   try {
     // Check if we have tags for the search terms
@@ -484,17 +504,20 @@ export async function searchTours({
     // Get Viator sort option
     const viatorSort = getViatorSort(sortBy);
     
+    // Build filter options object
+    const filterOptions = { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating };
+    
     // If we have tags or need special sorting, use tag-based search
     if (tags.length > 0 || searchTerms) {
       logger.info(`Using tag-based search for "${searchTerms}" with tags [${tags.join(', ')}]`);
-      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, startDate, endDate);
+      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions);
     }
 
     // Otherwise, use destination-based search
     const destInfo = await findDestination(destination);
     if (!destInfo) {
       logger.warn(`Destination not found: ${destination}, trying tag-based search`);
-      return await searchByDestinationId(destination, resultCount, '', sortBy, startDate, endDate);
+      return await searchByDestinationId(destination, resultCount, '', sortBy, filterOptions);
     }
 
     logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search, sort: ${sortBy}`);
@@ -511,8 +534,8 @@ export async function searchTours({
       currency: 'USD'
     };
 
-    if (startDate) searchBody.filtering.startDate = startDate;
-    if (endDate) searchBody.filtering.endDate = endDate;
+    // Apply all filters
+    applyFilters(searchBody.filtering, filterOptions);
 
     const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
       method: 'POST',
@@ -628,6 +651,55 @@ async function searchToursWithTerms(destination, searchTerms, resultCount) {
 }
 
 // ============================================================================
+// APPLY FILTERS HELPER
+// ============================================================================
+
+/**
+ * Apply filter options to a Viator search filtering object
+ * @param {Object} filtering - The filtering object to modify
+ * @param {Object} options - Filter options
+ */
+function applyFilters(filtering, options) {
+  const { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating } = options;
+  
+  // Date filters
+  if (startDate) filtering.startDate = startDate;
+  if (endDate) filtering.endDate = endDate;
+  
+  // Flag filters (FREE_CANCELLATION, SKIP_THE_LINE, PRIVATE_TOUR, LIKELY_TO_SELL_OUT, SPECIAL_OFFER)
+  if (flags && flags.length > 0) {
+    filtering.flags = flags;
+    logger.info(`Applied flags filter: [${flags.join(', ')}]`);
+  }
+  
+  // Price range filters
+  if (minPrice !== undefined && minPrice !== null) {
+    filtering.lowestPrice = minPrice;
+  }
+  if (maxPrice !== undefined && maxPrice !== null) {
+    filtering.highestPrice = maxPrice;
+  }
+  
+  // Duration filter (in minutes)
+  if (minDuration !== undefined || maxDuration !== undefined) {
+    filtering.durationInMinutes = {};
+    if (minDuration !== undefined && minDuration !== null) {
+      filtering.durationInMinutes.from = minDuration;
+    }
+    if (maxDuration !== undefined && maxDuration !== null) {
+      filtering.durationInMinutes.to = maxDuration;
+    }
+    logger.info(`Applied duration filter: ${minDuration || 0}-${maxDuration || '∞'} minutes`);
+  }
+  
+  // Rating filter (1-5)
+  if (minRating !== undefined && minRating !== null && minRating > 0) {
+    filtering.rating = { from: minRating };
+    logger.info(`Applied rating filter: ${minRating}+ stars`);
+  }
+}
+
+// ============================================================================
 // MAP SORT OPTIONS
 // ============================================================================
 
@@ -638,7 +710,9 @@ function getViatorSort(sortBy) {
     'reviews': { sort: 'DEFAULT' }, // Will sort by reviewCount client-side
     'price_low': { sort: 'PRICE', order: 'ASCENDING' },
     'price_high': { sort: 'PRICE', order: 'DESCENDING' },
-    'newest': { sort: 'NEW_ON_VIATOR', order: 'ASCENDING' }
+    'newest': { sort: 'DATE_ADDED', order: 'DESCENDING' },
+    'duration_short': { sort: 'ITINERARY_DURATION', order: 'ASCENDING' },
+    'duration_long': { sort: 'ITINERARY_DURATION', order: 'DESCENDING' }
   };
   return sortMap[sortBy] || { sort: 'DEFAULT' };
 }
@@ -647,7 +721,7 @@ function getViatorSort(sortBy) {
 // SEARCH BY DESTINATION ID (Fallback with optional filtering)
 // ============================================================================
 
-async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', startDate = null, endDate = null) {
+async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}) {
   const destInfo = await findDestination(destination);
   
   if (!destInfo) {
@@ -664,7 +738,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   
   const viatorSort = getViatorSort(sortBy);
   
-  logger.info(`Fallback: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}, dates=${startDate || 'none'} to ${endDate || 'none'}`);
+  logger.info(`Fallback search: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
   // Build the search body with tag filtering if available
   const searchBody = {
@@ -685,9 +759,8 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     logger.info(`Using API tag filter: [${tags.join(', ')}]`);
   }
 
-  // Add date filtering
-  if (startDate) searchBody.filtering.startDate = startDate;
-  if (endDate) searchBody.filtering.endDate = endDate;
+  // Apply all filters (dates, flags, price, duration, rating)
+  applyFilters(searchBody.filtering, filterOptions);
 
   const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
     method: 'POST',
