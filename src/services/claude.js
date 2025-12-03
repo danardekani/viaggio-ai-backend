@@ -21,7 +21,7 @@ CRITICAL: You have access to REAL bookable tours via Viator. When users ask abou
 HOW TO SHOW TOURS:
 Include this at the END of your response:
 \`\`\`context
-{"destination": "Boston", "travelers": 3, "month": "July", "startDate": "2025-07-15", "endDate": "2025-07-22", "searchTerms": "food", "resultCount": 5, "command": "SHOW_TOURS"}
+{"destination": "Boston", "travelers": 3, "month": "July", "startDate": "2025-07-15", "endDate": "2025-07-22", "searchTerms": "food", "resultCount": 5, "sortBy": "popular", "flags": ["FREE_CANCELLATION"], "minPrice": 50, "maxPrice": 200, "minRating": 4, "command": "SHOW_TOURS"}
 \`\`\`
 
 RULES:
@@ -30,8 +30,7 @@ RULES:
 3. Set "command": null only for greetings or when asking questions
 4. Keep searchTerms to 1-2 words max (e.g., "food" or "history")
 5. Keep your text SHORT when showing tours - let the tour cards speak
-6. Set sortBy based on user preference: "reviews", "rating", "price_low", "price_high", "newest", or "popular" (default)
-7. When user provides travel dates, include startDate and endDate in YYYY-MM-DD format
+6. Use filters when user mentions specific preferences
 
 DATE HANDLING:
 - When user gives specific dates like "July 15-22" or "December 10 to 15", convert to startDate/endDate
@@ -46,6 +45,26 @@ SORTBY OPTIONS:
 - "price_low" - Cheapest first  
 - "price_high" - Most expensive first
 - "newest" - Newest tours
+- "duration_short" - Shortest tours first
+- "duration_long" - Longest tours first
+
+FLAGS (filters for tour attributes):
+- "FREE_CANCELLATION" - Only tours with free cancellation
+- "SKIP_THE_LINE" - Skip-the-line tours
+- "PRIVATE_TOUR" - Private tours only
+- "LIKELY_TO_SELL_OUT" - Popular tours that often sell out
+- "SPECIAL_OFFER" - Tours with discounts
+
+PRICE FILTERS:
+- minPrice: minimum price in USD (e.g., 50)
+- maxPrice: maximum price in USD (e.g., 200)
+
+DURATION FILTERS:
+- minDuration: minimum duration in minutes (e.g., 60 for 1 hour)
+- maxDuration: maximum duration in minutes (e.g., 240 for 4 hours)
+
+RATING FILTER:
+- minRating: minimum star rating 1-5 (e.g., 4 for 4+ stars)
 
 WHEN TO SHOW TOURS (command = "SHOW_TOURS"):
 - "What are the top activities in X?"
@@ -67,28 +86,40 @@ You: "Here are the top activities in Boston for July!
 {"destination": "Boston", "month": "July", "resultCount": 5, "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "There are 3 of us"  
-You: "Great, here are the best tours for your group of 3:
+User: "Show me tours with free cancellation"
+You: "Here are tours with free cancellation:
 \`\`\`context
-{"travelers": 3, "command": "SHOW_TOURS"}
+{"flags": ["FREE_CANCELLATION"], "command": "SHOW_TOURS"}
 \`\`\`"
 
-User: "Show me tours with the most reviews"
-You: "Here are the most reviewed tours:
+User: "I want a private tour under $100"
+You: "Here are private tours under $100:
 \`\`\`context
-{"sortBy": "reviews", "command": "SHOW_TOURS"}
+{"flags": ["PRIVATE_TOUR"], "maxPrice": 100, "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "Show me highly rated food tours"
+You: "Here are top-rated food tours (4+ stars):
+\`\`\`context
+{"searchTerms": "food", "minRating": 4, "sortBy": "rating", "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "Short tours under 2 hours"
+You: "Here are quick tours under 2 hours:
+\`\`\`context
+{"maxDuration": 120, "sortBy": "duration_short", "command": "SHOW_TOURS"}
+\`\`\`"
+
+User: "Skip the line tours between $50 and $150"
+You: "Here are skip-the-line tours in your budget:
+\`\`\`context
+{"flags": ["SKIP_THE_LINE"], "minPrice": 50, "maxPrice": 150, "command": "SHOW_TOURS"}
 \`\`\`"
 
 User: "Show me the cheapest food tours"
 You: "Here are the most affordable food tours:
 \`\`\`context
 {"searchTerms": "food", "sortBy": "price_low", "command": "SHOW_TOURS"}
-\`\`\`"
-
-User: "Show me food tours instead"
-You: "Here are the best food tours:
-\`\`\`context
-{"searchTerms": "food", "command": "SHOW_TOURS"}
 \`\`\`"
 
 User: "I want to visit Paris"
@@ -101,12 +132,6 @@ User: "We're going July 15-22"
 You: "Perfect! Here are tours available for your dates:
 \`\`\`context
 {"startDate": "2025-07-15", "endDate": "2025-07-22", "command": "SHOW_TOURS"}
-\`\`\`"
-
-User: "What about December 10th to the 15th?"
-You: "Here are tours for December 10-15:
-\`\`\`context
-{"startDate": "2025-12-10", "endDate": "2025-12-15", "command": "SHOW_TOURS"}
 \`\`\`"
 
 REMEMBER: Short text + SHOW_TOURS = User sees real bookable tours!`;
@@ -427,6 +452,162 @@ export function extractContext(userMessage, existingContext = {}) {
     context.sortBy = 'price_high';
   } else if (lower.includes('newest') || lower.includes('new tour') || lower.includes('recently added')) {
     context.sortBy = 'newest';
+  } else if (lower.includes('shortest') || lower.includes('quick') || lower.includes('under 2 hour') || lower.includes('under an hour')) {
+    context.sortBy = 'duration_short';
+  } else if (lower.includes('longest') || lower.includes('full day') || lower.includes('all day')) {
+    context.sortBy = 'duration_long';
+  }
+
+  // Flag extraction
+  const flags = [];
+  
+  if (lower.includes('free cancel') || lower.includes('refundable') || lower.includes('flexible cancel')) {
+    flags.push('FREE_CANCELLATION');
+  }
+  if (lower.includes('skip the line') || lower.includes('skip-the-line') || lower.includes('no line') || lower.includes('fast track') || lower.includes('priority access')) {
+    flags.push('SKIP_THE_LINE');
+  }
+  if (lower.includes('private tour') || lower.includes('private group') || lower.includes('just us') || lower.includes('exclusive tour')) {
+    flags.push('PRIVATE_TOUR');
+  }
+  if (lower.includes('sell out') || lower.includes('sells out') || lower.includes('book fast') || lower.includes('very popular')) {
+    flags.push('LIKELY_TO_SELL_OUT');
+  }
+  if (lower.includes('discount') || lower.includes('deal') || lower.includes('special offer') || lower.includes('on sale')) {
+    flags.push('SPECIAL_OFFER');
+  }
+  
+  if (flags.length > 0) {
+    context.flags = flags;
+  }
+
+  // Price extraction
+  const pricePatterns = {
+    // "under $100" or "less than $100" or "below $100"
+    maxPrice: [
+      /under\s*\$?(\d+)/i,
+      /less than\s*\$?(\d+)/i,
+      /below\s*\$?(\d+)/i,
+      /max(?:imum)?\s*(?:price\s*)?\$?(\d+)/i,
+      /up to\s*\$?(\d+)/i
+    ],
+    // "over $50" or "more than $50" or "at least $50"
+    minPrice: [
+      /over\s*\$?(\d+)/i,
+      /more than\s*\$?(\d+)/i,
+      /above\s*\$?(\d+)/i,
+      /at least\s*\$?(\d+)/i,
+      /min(?:imum)?\s*(?:price\s*)?\$?(\d+)/i,
+      /starting (?:at|from)\s*\$?(\d+)/i
+    ],
+    // "between $50 and $100" or "$50-$100" or "$50 to $100"
+    range: [
+      /between\s*\$?(\d+)\s*(?:and|to|-)\s*\$?(\d+)/i,
+      /\$(\d+)\s*(?:-|to)\s*\$?(\d+)/i,
+      /(\d+)\s*(?:-|to)\s*(\d+)\s*dollars/i
+    ]
+  };
+  
+  // Check for price range first
+  for (const pattern of pricePatterns.range) {
+    const match = lower.match(pattern);
+    if (match) {
+      context.minPrice = parseInt(match[1]);
+      context.maxPrice = parseInt(match[2]);
+      break;
+    }
+  }
+  
+  // Check for max price
+  if (!context.maxPrice) {
+    for (const pattern of pricePatterns.maxPrice) {
+      const match = lower.match(pattern);
+      if (match) {
+        context.maxPrice = parseInt(match[1]);
+        break;
+      }
+    }
+  }
+  
+  // Check for min price
+  if (!context.minPrice) {
+    for (const pattern of pricePatterns.minPrice) {
+      const match = lower.match(pattern);
+      if (match) {
+        context.minPrice = parseInt(match[1]);
+        break;
+      }
+    }
+  }
+
+  // Duration extraction
+  const durationPatterns = {
+    // "under 2 hours" or "less than 3 hours"
+    maxDuration: [
+      /under\s*(\d+)\s*hours?/i,
+      /less than\s*(\d+)\s*hours?/i,
+      /shorter than\s*(\d+)\s*hours?/i,
+      /max(?:imum)?\s*(\d+)\s*hours?/i
+    ],
+    // "over 2 hours" or "at least 3 hours"
+    minDuration: [
+      /over\s*(\d+)\s*hours?/i,
+      /more than\s*(\d+)\s*hours?/i,
+      /at least\s*(\d+)\s*hours?/i,
+      /min(?:imum)?\s*(\d+)\s*hours?/i,
+      /longer than\s*(\d+)\s*hours?/i
+    ]
+  };
+  
+  for (const pattern of durationPatterns.maxDuration) {
+    const match = lower.match(pattern);
+    if (match) {
+      context.maxDuration = parseInt(match[1]) * 60; // Convert hours to minutes
+      break;
+    }
+  }
+  
+  for (const pattern of durationPatterns.minDuration) {
+    const match = lower.match(pattern);
+    if (match) {
+      context.minDuration = parseInt(match[1]) * 60; // Convert hours to minutes
+      break;
+    }
+  }
+  
+  // Handle "half day" and "full day"
+  if (lower.includes('half day') || lower.includes('half-day')) {
+    context.maxDuration = 240; // 4 hours
+  }
+  if (lower.includes('full day') || lower.includes('full-day') || lower.includes('all day')) {
+    context.minDuration = 360; // 6 hours minimum
+  }
+
+  // Rating extraction
+  const ratingPatterns = [
+    /(\d+(?:\.\d+)?)\+?\s*stars?/i,
+    /(\d+(?:\.\d+)?)\s*(?:star)?\s*(?:rating|rated)/i,
+    /rating\s*(?:of\s*)?(\d+(?:\.\d+)?)/i,
+    /highly rated/i,
+    /top rated/i
+  ];
+  
+  for (const pattern of ratingPatterns) {
+    if (pattern.source.includes('highly') || pattern.source.includes('top')) {
+      if (pattern.test(lower)) {
+        context.minRating = 4;
+        break;
+      }
+    } else {
+      const match = lower.match(pattern);
+      if (match) {
+        const rating = parseFloat(match[1]);
+        if (rating >= 1 && rating <= 5) {
+          context.minRating = rating;
+        }
+        break;
+      }
+    }
   }
 
   // Date extraction
