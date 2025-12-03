@@ -217,10 +217,14 @@ export function extractContext(userMessage, existingContext = {}) {
 
   // Destinations - check longer names first, use word boundaries
   const destinations = [
+    // Multi-word cities (check first)
+    { name: 'Lake Placid', patterns: ['lake placid'] },
+    { name: 'Bar Harbor', patterns: ['bar harbor'] },
+    { name: 'Portland, ME', patterns: ['portland, me', 'portland maine', 'portland, maine'] },
     { name: 'Philadelphia', patterns: ['philadelphia', 'philly'] },
     { name: 'San Francisco', patterns: ['san francisco', 'sf'] },
     { name: 'Los Angeles', patterns: ['los angeles', 'la'] },
-    { name: 'New York', patterns: ['new york', 'nyc'] },
+    { name: 'New York', patterns: ['new york', 'nyc', 'manhattan'] },
     { name: 'Las Vegas', patterns: ['las vegas', 'vegas'] },
     { name: 'Washington DC', patterns: ['washington dc', 'washington d.c.', 'dc'] },
     { name: 'New Orleans', patterns: ['new orleans', 'nola'] },
@@ -228,12 +232,53 @@ export function extractContext(userMessage, existingContext = {}) {
     { name: 'Rio de Janeiro', patterns: ['rio de janeiro', 'rio'] },
     { name: 'Hong Kong', patterns: ['hong kong'] },
     { name: 'Cape Town', patterns: ['cape town'] },
+    { name: 'Salt Lake City', patterns: ['salt lake city', 'salt lake'] },
+    { name: 'Lake Tahoe', patterns: ['lake tahoe', 'tahoe'] },
+    { name: 'Napa Valley', patterns: ['napa valley', 'napa', 'sonoma'] },
+    { name: 'Palm Springs', patterns: ['palm springs'] },
+    { name: 'Santa Barbara', patterns: ['santa barbara'] },
+    { name: 'Cape Cod', patterns: ['cape cod'] },
+    { name: 'Martha\'s Vineyard', patterns: ['martha\'s vineyard', 'marthas vineyard'] },
+    { name: 'Jackson Hole', patterns: ['jackson hole', 'jackson, wy'] },
+    { name: 'Park City', patterns: ['park city'] },
+    { name: 'Key West', patterns: ['key west', 'florida keys'] },
+    { name: 'St. Augustine', patterns: ['st augustine', 'st. augustine', 'saint augustine'] },
+    { name: 'Hilton Head', patterns: ['hilton head'] },
+    { name: 'Myrtle Beach', patterns: ['myrtle beach'] },
+    { name: 'Outer Banks', patterns: ['outer banks', 'obx'] },
+    
+    // National Parks
+    { name: 'Grand Canyon National Park', patterns: ['grand canyon'] },
+    { name: 'Yellowstone National Park', patterns: ['yellowstone'] },
+    { name: 'Yosemite National Park', patterns: ['yosemite'] },
+    { name: 'Zion National Park', patterns: ['zion'] },
+    { name: 'Glacier National Park', patterns: ['glacier national park', 'glacier'] },
+    { name: 'Acadia National Park', patterns: ['acadia'] },
+    
+    // Standard US cities
     { name: 'Boston', patterns: ['boston'] },
     { name: 'Miami', patterns: ['miami'] },
     { name: 'Orlando', patterns: ['orlando'] },
     { name: 'Chicago', patterns: ['chicago'] },
     { name: 'Seattle', patterns: ['seattle'] },
-    { name: 'Hawaii', patterns: ['hawaii', 'honolulu', 'maui'] },
+    { name: 'Portland', patterns: ['portland'] },
+    { name: 'Denver', patterns: ['denver'] },
+    { name: 'Austin', patterns: ['austin'] },
+    { name: 'Houston', patterns: ['houston'] },
+    { name: 'Dallas', patterns: ['dallas'] },
+    { name: 'Phoenix', patterns: ['phoenix', 'scottsdale'] },
+    { name: 'Sedona', patterns: ['sedona'] },
+    { name: 'Santa Fe', patterns: ['santa fe', 'taos'] },
+    { name: 'Moab', patterns: ['moab'] },
+    { name: 'Nashville', patterns: ['nashville'] },
+    { name: 'Memphis', patterns: ['memphis'] },
+    { name: 'Atlanta', patterns: ['atlanta'] },
+    { name: 'Charleston', patterns: ['charleston'] },
+    { name: 'Savannah', patterns: ['savannah'] },
+    { name: 'Asheville', patterns: ['asheville'] },
+    { name: 'Hawaii', patterns: ['hawaii', 'honolulu', 'maui', 'kauai', 'oahu'] },
+    
+    // International - Europe
     { name: 'Florence', patterns: ['florence'] },
     { name: 'Rome', patterns: ['rome'] },
     { name: 'Venice', patterns: ['venice'] },
@@ -251,6 +296,12 @@ export function extractContext(userMessage, existingContext = {}) {
     { name: 'Athens', patterns: ['athens'] },
     { name: 'Santorini', patterns: ['santorini'] },
     { name: 'Dublin', patterns: ['dublin'] },
+    { name: 'Edinburgh', patterns: ['edinburgh'] },
+    { name: 'Copenhagen', patterns: ['copenhagen'] },
+    { name: 'Stockholm', patterns: ['stockholm'] },
+    { name: 'Reykjavik', patterns: ['reykjavik', 'iceland'] },
+    
+    // International - Asia Pacific
     { name: 'Tokyo', patterns: ['tokyo'] },
     { name: 'Kyoto', patterns: ['kyoto'] },
     { name: 'Osaka', patterns: ['osaka'] },
@@ -259,8 +310,17 @@ export function extractContext(userMessage, existingContext = {}) {
     { name: 'Sydney', patterns: ['sydney'] },
     { name: 'Melbourne', patterns: ['melbourne'] },
     { name: 'Bali', patterns: ['bali'] },
-    { name: 'Cancun', patterns: ['cancun'] },
     { name: 'Dubai', patterns: ['dubai'] },
+    
+    // International - Americas
+    { name: 'Cancun', patterns: ['cancun'] },
+    { name: 'Cabo San Lucas', patterns: ['cabo', 'cabo san lucas', 'los cabos'] },
+    { name: 'Puerto Vallarta', patterns: ['puerto vallarta'] },
+    { name: 'Mexico City', patterns: ['mexico city', 'cdmx'] },
+    { name: 'San Juan', patterns: ['san juan', 'puerto rico'] },
+    { name: 'Caribbean', patterns: ['caribbean'] },
+    
+    // International - Other
     { name: 'Cairo', patterns: ['cairo'] }
   ];
 
