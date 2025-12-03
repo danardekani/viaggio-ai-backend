@@ -3,7 +3,7 @@
 // ============================================================================
 
 import express from 'express';
-import { searchTours, getTourDetails, findDestination } from '../services/affiliates/viator.js';
+import { searchTours, getTourDetails, findDestination, debugSearchDestinations } from '../services/affiliates/viator.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -109,6 +109,28 @@ router.get('/destinations/search', async (req, res, next) => {
 
   } catch (error) {
     logger.error('Destination search error:', error);
+    next(error);
+  }
+});
+
+// ============================================================================
+// GET /api/tours/debug/destinations - Debug endpoint to search all destinations
+// ============================================================================
+
+router.get('/debug/destinations', async (req, res, next) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.status(400).json({ error: 'Query must be at least 2 characters' });
+    }
+
+    const results = await debugSearchDestinations(q);
+
+    res.json(results);
+
+  } catch (error) {
+    logger.error('Debug destination search error:', error);
     next(error);
   }
 });
