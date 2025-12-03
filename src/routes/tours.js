@@ -19,10 +19,16 @@ const router = express.Router();
  * {
  *   destination: "Boston",           // Required
  *   searchTerms: "food brewery",     // Optional - filter by keywords
- *   resultCount: 5,                  // Optional - number of results (default 10)
- *   sortBy: "reviews",               // Optional - 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest'
- *   startDate: "2025-07-15",         // Optional
- *   endDate: "2025-07-22"            // Optional
+ *   resultCount: 5,                  // Optional - number of results (default 10, max 20)
+ *   sortBy: "reviews",               // Optional - 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'
+ *   startDate: "2025-07-15",         // Optional - YYYY-MM-DD format
+ *   endDate: "2025-07-22",           // Optional - YYYY-MM-DD format
+ *   flags: ["FREE_CANCELLATION"],    // Optional - array of: FREE_CANCELLATION, SKIP_THE_LINE, PRIVATE_TOUR, LIKELY_TO_SELL_OUT, SPECIAL_OFFER
+ *   minPrice: 50,                    // Optional - minimum price in USD
+ *   maxPrice: 200,                   // Optional - maximum price in USD
+ *   minDuration: 60,                 // Optional - minimum duration in minutes
+ *   maxDuration: 240,                // Optional - maximum duration in minutes
+ *   minRating: 4                     // Optional - minimum rating (1-5)
  * }
  */
 router.post('/search', async (req, res, next) => {
@@ -33,7 +39,13 @@ router.post('/search', async (req, res, next) => {
       resultCount = 10,
       sortBy = 'popular',
       startDate, 
-      endDate 
+      endDate,
+      flags = [],
+      minPrice,
+      maxPrice,
+      minDuration,
+      maxDuration,
+      minRating
     } = req.body;
 
     if (!destination) {
@@ -41,6 +53,12 @@ router.post('/search', async (req, res, next) => {
         error: 'Missing required field: destination'
       });
     }
+
+    // Validate flags if provided
+    const validFlags = ['FREE_CANCELLATION', 'SKIP_THE_LINE', 'PRIVATE_TOUR', 'LIKELY_TO_SELL_OUT', 'SPECIAL_OFFER', 'NEW_ON_VIATOR'];
+    const sanitizedFlags = Array.isArray(flags) 
+      ? flags.filter(f => validFlags.includes(f))
+      : [];
 
     logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}`);
 
@@ -50,14 +68,33 @@ router.post('/search', async (req, res, next) => {
       resultCount: Math.min(parseInt(resultCount) || 10, 20),
       sortBy,
       startDate,
-      endDate
+      endDate,
+      flags: sanitizedFlags,
+      minPrice: minPrice !== undefined ? parseFloat(minPrice) : undefined,
+      maxPrice: maxPrice !== undefined ? parseFloat(maxPrice) : undefined,
+      minDuration: minDuration !== undefined ? parseInt(minDuration) : undefined,
+      maxDuration: maxDuration !== undefined ? parseInt(maxDuration) : undefined,
+      minRating: minRating !== undefined ? parseFloat(minRating) : undefined
     });
 
     logger.info(`Returning ${tours.length} tours`);
 
     res.json({ 
       tours,
-      searchParams: { destination, searchTerms, resultCount, sortBy },
+      searchParams: { 
+        destination, 
+        searchTerms, 
+        resultCount, 
+        sortBy,
+        startDate,
+        endDate,
+        flags: sanitizedFlags,
+        minPrice,
+        maxPrice,
+        minDuration,
+        maxDuration,
+        minRating
+      },
       count: tours.length
     });
 
