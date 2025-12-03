@@ -246,7 +246,7 @@ export async function searchTours({
     throw new Error('VIATOR_API_KEY not configured');
   }
 
-  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}`);
+  logger.info(`Searching tours: ${destination}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}, dates: ${startDate || 'none'} to ${endDate || 'none'}`);
 
   try {
     // Check if we have tags for the search terms
@@ -262,14 +262,14 @@ export async function searchTours({
     // If we have tags or need special sorting, use tag-based search
     if (tags.length > 0 || searchTerms) {
       logger.info(`Using tag-based search for "${searchTerms}" with tags [${tags.join(', ')}]`);
-      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy);
+      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, startDate, endDate);
     }
 
     // Otherwise, use destination-based search
     const destInfo = await findDestination(destination);
     if (!destInfo) {
       logger.warn(`Destination not found: ${destination}, trying tag-based search`);
-      return await searchByDestinationId(destination, resultCount, '', sortBy);
+      return await searchByDestinationId(destination, resultCount, '', sortBy, startDate, endDate);
     }
 
     logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search, sort: ${sortBy}`);
@@ -422,7 +422,7 @@ function getViatorSort(sortBy) {
 // SEARCH BY DESTINATION ID (Fallback with optional filtering)
 // ============================================================================
 
-async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular') {
+async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', startDate = null, endDate = null) {
   const destInfo = await findDestination(destination);
   
   if (!destInfo) {
@@ -439,7 +439,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   
   const viatorSort = getViatorSort(sortBy);
   
-  logger.info(`Fallback: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
+  logger.info(`Fallback: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}, dates=${startDate || 'none'} to ${endDate || 'none'}`);
 
   // Build the search body with tag filtering if available
   const searchBody = {
@@ -459,6 +459,10 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     searchBody.filtering.tags = tags;
     logger.info(`Using API tag filter: [${tags.join(', ')}]`);
   }
+
+  // Add date filtering
+  if (startDate) searchBody.filtering.startDate = startDate;
+  if (endDate) searchBody.filtering.endDate = endDate;
 
   const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
     method: 'POST',
