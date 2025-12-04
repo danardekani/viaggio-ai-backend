@@ -908,7 +908,7 @@ function formatTourResult(product) {
   return {
     id: productCode,
     name: product.title,
-    description: truncateText(product.description, 200),
+    description: product.description || '', // Send full description, frontend handles truncation
     duration,
     rating,
     reviewCount,
