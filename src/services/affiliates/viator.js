@@ -965,15 +965,138 @@ export async function debugSearchDestinations(query) {
 }
 
 // ============================================================================
+// FREETEXT SEARCH (AUTOCOMPLETE)
+// ============================================================================
+
+/**
+ * Search for destinations using Viator's freetext search API
+ * This provides real-time autocomplete suggestions as users type
+ */
+export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
+  if (!searchTerm || searchTerm.length < 2) {
+    return [];
+  }
+
+  logger.info(`Autocomplete search for: "${searchTerm}"`);
+
+  try {
+    const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        searchTerm: searchTerm,
+        searchTypes: [
+          {
+            searchType: 'DESTINATIONS',
+            pagination: {
+              start: 1,
+              count: limit
+            }
+          }
+        ],
+        currency: 'USD'
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Viator freetext API error: ${response.status} - ${errorText}`);
+      // Fall back to local destination search
+      return fallbackDestinationSearch(searchTerm, limit);
+    }
+
+    const data = await response.json();
+    
+    // Extract destinations from response
+    const destinations = data.destinations?.results || [];
+    
+    const results = destinations.map(d => ({
+      destinationId: d.destinationId?.toString() || d.ref,
+      name: d.destinationName || d.name,
+      type: d.destinationType || d.type || 'CITY',
+      parentName: d.parentDestinationName || null,
+      // Create display label like "Portland, Oregon" or "Paris, France"
+      displayName: d.parentDestinationName 
+        ? `${d.destinationName || d.name}, ${d.parentDestinationName}`
+        : d.destinationName || d.name
+    }));
+
+    logger.info(`Autocomplete found ${results.length} destinations for "${searchTerm}"`);
+    return results;
+
+  } catch (error) {
+    logger.error('Autocomplete search error:', error);
+    // Fall back to local destination search
+    return fallbackDestinationSearch(searchTerm, limit);
+  }
+}
+
+/**
+ * Fallback to searching cached destinations when API fails
+ */
+async function fallbackDestinationSearch(searchTerm, limit = 8) {
+  try {
+    const destinations = await fetchDestinations();
+    const searchLower = searchTerm.toLowerCase();
+    
+    // Score and filter destinations
+    const scored = destinations
+      .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+      .map(d => {
+        const nameLower = d.name.toLowerCase();
+        let score = 0;
+        
+        // Exact match gets highest score
+        if (nameLower === searchLower) score = 100;
+        // Starts with search term
+        else if (nameLower.startsWith(searchLower)) score = 80;
+        // Contains search term
+        else score = 50;
+        
+        // Boost cities over regions
+        if (d.type === 'CITY') score += 10;
+        
+        return { ...d, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    // Find parent names for display
+    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    
+    return scored.map(d => {
+      const parent = d.parentDestinationId ? destMap.get(d.parentDestinationId) : null;
+      return {
+        destinationId: d.destinationId?.toString(),
+        name: d.name,
+        type: d.type || 'CITY',
+        parentName: parent?.name || null,
+        displayName: parent?.name ? `${d.name}, ${parent.name}` : d.name
+      };
+    });
+
+  } catch (error) {
+    logger.error('Fallback destination search error:', error);
+    return [];
+  }
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
-export { fetchDestinations };
+export { fetchDestinations, searchDestinationsAutocomplete };
 
 export default {
   searchTours,
   getTourDetails,
   findDestination,
   fetchDestinations,
-  debugSearchDestinations
+  debugSearchDestinations,
+  searchDestinationsAutocomplete
 };
