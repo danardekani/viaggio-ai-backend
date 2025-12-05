@@ -18,6 +18,7 @@ import tourRoutes from './routes/tours.js';
 import chatRoutes from './routes/chat.js';
 import trackingRoutes from './routes/tracking.js';
 import feedbackRoutes from './routes/feedback.js';
+import identifyRoutes from './routes/identify.js';
 
 // Import middleware
 import { corsConfig } from './middleware/cors.js';
@@ -82,6 +83,7 @@ app.get('/health', (req, res) => {
 app.use('/api/chat', chatRoutes);           // AI conversation endpoint
 app.use('/api/tracking', trackingRoutes);   // Affiliate tracking endpoint
 app.use('/api/feedback', feedbackRoutes);   // User feedback endpoint
+app.use('/api/identify', identifyRoutes);   // Where is this endpoint
 
 // Catch-all route for undefined endpoints
 app.use('*', (req, res) => {
