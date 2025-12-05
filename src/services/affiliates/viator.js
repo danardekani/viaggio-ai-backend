@@ -1090,7 +1090,7 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
 // EXPORTS
 // ============================================================================
 
-export { fetchDestinations, searchDestinationsAutocomplete };
+export { fetchDestinations };
 
 export default {
   searchTours,
