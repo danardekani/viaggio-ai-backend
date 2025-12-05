@@ -3,10 +3,35 @@
 // ============================================================================
 
 import express from 'express';
-import { searchTours, getTourDetails, findDestination, debugSearchDestinations } from '../services/affiliates/viator.js';
+import { searchTours, getTourDetails, findDestination, debugSearchDestinations, searchDestinationsAutocomplete } from '../services/affiliates/viator.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
+
+// ============================================================================
+// GET /api/tours/destinations/autocomplete - Autocomplete for destination input
+// ============================================================================
+
+router.get('/destinations/autocomplete', async (req, res, next) => {
+  try {
+    const { q, limit = 8 } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.json({ suggestions: [] });
+    }
+
+    const suggestions = await searchDestinationsAutocomplete(q, parseInt(limit));
+
+    res.json({ 
+      suggestions,
+      query: q
+    });
+
+  } catch (error) {
+    logger.error('Autocomplete error:', error);
+    res.json({ suggestions: [], error: 'Search failed' });
+  }
+});
 
 // ============================================================================
 // POST /api/tours/search
