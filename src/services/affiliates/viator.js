@@ -980,6 +980,10 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   logger.info(`Autocomplete search for: "${searchTerm}"`);
 
   try {
+    // First, get all cached destinations (which have type info)
+    const allDestinations = await fetchDestinations();
+    const destMap = new Map(allDestinations.map(d => [d.destinationId, d]));
+    
     const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
       method: 'POST',
       headers: {
@@ -1015,16 +1019,25 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     // Extract destinations from response
     const destinations = data.destinations?.results || [];
     
-    const results = destinations.map(d => ({
-      destinationId: d.destinationId?.toString() || d.ref,
-      name: d.destinationName || d.name,
-      type: d.destinationType || d.type || 'CITY',
-      parentName: d.parentDestinationName || null,
-      // Create display label like "Portland, Oregon" or "Paris, France"
-      displayName: d.parentDestinationName 
-        ? `${d.destinationName || d.name}, ${d.parentDestinationName}`
-        : d.destinationName || d.name
-    }));
+    const results = destinations.map(d => {
+      // The freetext API returns 'id' not 'destinationId'
+      const destId = d.id || d.destinationId;
+      
+      // Look up the full destination details from cache to get the type
+      const cachedDest = destMap.get(destId);
+      const destType = cachedDest?.type || 'DESTINATION';
+      
+      return {
+        destinationId: destId?.toString(),
+        name: d.name || d.destinationName,
+        type: destType,
+        parentName: d.parentDestinationName || null,
+        // Create display label like "Portland, Oregon" or "Paris, France"
+        displayName: d.parentDestinationName 
+          ? `${d.name || d.destinationName}, ${d.parentDestinationName}`
+          : d.name || d.destinationName
+      };
+    });
 
     logger.info(`Autocomplete found ${results.length} destinations for "${searchTerm}"`);
     return results;
