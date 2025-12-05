@@ -60,6 +60,9 @@ app.use('/api/', rateLimiter);
 // Get tours from viator
 app.use('/api/tours', tourRoutes);
 
+// Where is this destination?
+app.use('/api/identify', identifyRoutes);
+
 // Log all incoming requests
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`);
