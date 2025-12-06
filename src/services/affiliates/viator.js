@@ -4,7 +4,7 @@
 
 import { logger } from '../../utils/logger.js';
 
-const VIATOR_API_BASE = 'https://api.viator.com/partner';
+const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
 const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
 
