@@ -19,6 +19,7 @@ import chatRoutes from './routes/chat.js';
 import trackingRoutes from './routes/tracking.js';
 import feedbackRoutes from './routes/feedback.js';
 import identifyRoutes from './routes/identify.js';
+import agentRoutes from './routes/agent/chat-agent.js';
 
 // Import middleware
 import { corsConfig } from './middleware/cors.js';
@@ -50,6 +51,9 @@ app.set('trust proxy', 1);
 
 // Parse JSON request bodies
 app.use(express.json({ limit: '50mb'}));
+
+// Agentic AI route
+app.use('/api/agent', agentRoutes);
 
 // Enable CORS for frontend communication
 app.use(cors(corsConfig));
