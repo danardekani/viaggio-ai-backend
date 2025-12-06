@@ -5,8 +5,8 @@
 // It connects tool calls to real APIs and services.
 // ============================================================================
 
-import { searchTours } from '../services/affiliates/viator.js';
-import { identifyLocation } from '../services/vision.js';
+import { searchTours } from '../../services/affiliates/viator.js';
+import { identifyLocation } from '../../services/vision.js';
 
 // Simple logger (console-based)
 const logger = {
