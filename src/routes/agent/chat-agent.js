@@ -80,6 +80,7 @@ router.post('/chat', async (req, res) => {
 
     // Track tool usage for this request
     const toolsUsed = [];
+    const toursFound = [];  // Collect tour data for card display
     let iterations = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -152,10 +153,11 @@ router.post('/chat', async (req, res) => {
       if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
         const finalText = textBlocks.map(b => b.text).join('\n');
         
-        logger.info(`Agent complete after ${iterations} iterations, ${toolsUsed.length} tool calls`);
+        logger.info(`Agent complete after ${iterations} iterations, ${toolsUsed.length} tool calls, ${toursFound.length} tours found`);
 
         return res.json({
           message: finalText,
+          tours: toursFound,  // Include tour data for card rendering
           toolsUsed,
           iterations,
           usage: {
@@ -191,6 +193,11 @@ router.post('/chat', async (req, res) => {
           input: toolUse.input,
           success: !result.error
         });
+
+        // Collect tour data for card display
+        if (toolUse.name === 'search_tours' && result.success && result.tours) {
+          toursFound.push(...result.tours);
+        }
 
         // Add result to collection
         toolResults.push({
