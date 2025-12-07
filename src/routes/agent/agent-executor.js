@@ -92,29 +92,15 @@ async function executeSearchTours(input) {
       };
     }
 
-    // Format tours for agent consumption
-    const formattedTours = tours.map(tour => ({
-      name: tour.title || tour.name,
-      price: tour.price,
-      priceFormatted: tour.priceFormatted || `$${tour.price}`,
-      currency: tour.currency || 'USD',
-      duration: tour.duration,
-      rating: tour.rating,
-      reviewCount: tour.reviewCount,
-      description: tour.description || tour.shortDescription,
-      highlights: tour.highlights || [],
-      bookingUrl: tour.bookingUrl || tour.webURL,
-      images: tour.images || [],
-      productCode: tour.productCode
-    }));
-
-    logger.info(`Found ${formattedTours.length} tours in ${destination}`);
+    // Tours are already formatted by viator.js - just pass them through
+    // viator.js returns: id, name, image, duration, rating, reviewCount, price, bookingLink, etc.
+    logger.info(`Found ${tours.length} tours in ${destination}`);
 
     return {
       success: true,
       destination,
-      tourCount: formattedTours.length,
-      tours: formattedTours
+      tourCount: tours.length,
+      tours: tours  // Pass through as-is
     };
 
   } catch (error) {
