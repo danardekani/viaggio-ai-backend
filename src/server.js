@@ -15,7 +15,6 @@ import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
 
 // Import routes
-import chatRoutes from './routes/chat.js';
 import trackingRoutes from './routes/tracking.js';
 import feedbackRoutes from './routes/feedback.js';
 import identifyRoutes from './routes/identify.js';
@@ -87,7 +86,6 @@ app.get('/health', (req, res) => {
 });
 
 // API Routes
-app.use('/api/chat', chatRoutes);           // AI conversation endpoint
 app.use('/api/tracking', trackingRoutes);   // Affiliate tracking endpoint
 app.use('/api/feedback', feedbackRoutes);   // User feedback endpoint
 app.use('/api/identify', identifyRoutes);   // Where is this endpoint
