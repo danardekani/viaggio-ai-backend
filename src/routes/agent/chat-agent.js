@@ -24,15 +24,43 @@ const logger = {
   error: (...args) => console.error('[Agent Chat]', ...args)
 };
 
+// ==========================================================================
+// CORS MIDDLEWARE - Ensure CORS headers are always set
+// ==========================================================================
+const ALLOWED_ORIGINS = [
+  'https://viaggio-ai.vercel.app',
+  'http://localhost:5173',  // Local development
+  'http://localhost:3000'   // Local development alternative
+];
+
+router.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Configuration
-const MAX_TOOL_ITERATIONS = 10;  // Safety limit to prevent infinite loops
+const MAX_TOOL_ITERATIONS = 5;  // Reduced from 10 for faster responses
 const MODEL = 'claude-sonnet-4-20250514';
+const REQUEST_TIMEOUT_MS = 55000;  // 55 seconds (under Railway's 60s limit)
 
 // ============================================================================
 // POST /api/agent/chat - Agentic Chat Endpoint
 // ============================================================================
 
 router.post('/chat', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { messages, context = {} } = req.body;
 
@@ -63,17 +91,50 @@ router.post('/chat', async (req, res) => {
     // =======================================================================
 
     while (iterations < MAX_TOOL_ITERATIONS) {
+      // Check if we're running out of time
+      const elapsed = Date.now() - startTime;
+      if (elapsed > REQUEST_TIMEOUT_MS) {
+        logger.warn(`Request timing out after ${elapsed}ms`);
+        const partialText = conversationMessages
+          .filter(m => m.role === 'assistant' && typeof m.content === 'string')
+          .map(m => m.content)
+          .join('\n');
+        
+        return res.json({
+          message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
+          toolsUsed,
+          iterations,
+          warning: 'Request timeout - partial response',
+          usage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens
+          }
+        });
+      }
+
       iterations++;
-      logger.info(`Agent loop iteration ${iterations}`);
+      logger.info(`Agent loop iteration ${iterations} (${elapsed}ms elapsed)`);
 
       // Call Claude with tools
-      const response = await anthropic.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        system: travelAgentSystemPrompt,
-        tools: agentTools,
-        messages: conversationMessages
-      });
+      let response;
+      try {
+        response = await anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 4096,
+          system: travelAgentSystemPrompt,
+          tools: agentTools,
+          messages: conversationMessages
+        });
+      } catch (apiError) {
+        logger.error('Claude API error:', apiError.message);
+        return res.json({
+          message: "I'm having trouble connecting to my brain right now. Could you try again in a moment?",
+          error: apiError.message,
+          toolsUsed,
+          iterations
+        });
+      }
 
       // Track token usage
       totalInputTokens += response.usage?.input_tokens || 0;
