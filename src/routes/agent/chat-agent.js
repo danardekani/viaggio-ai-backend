@@ -1,5 +1,5 @@
 // ============================================================================
-// AGENTIC CHAT ROUTES
+// AGENTIC CHAT ROUTES 
 // ============================================================================
 // This is the agentic version of the chat endpoint.
 // Claude can autonomously use tools to help users plan trips.
