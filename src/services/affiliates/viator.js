@@ -211,8 +211,13 @@ const REGIONAL_FALLBACKS = {
   'providence': 'Rhode Island',
   
   // California
+// California
   'napa': 'Napa Valley',
+  'napa valley': 'Napa Valley',        
   'sonoma': 'Napa Valley',
+  'sonoma valley': 'Napa Valley',      
+  'napa & sonoma': 'Napa Valley',      
+  'wine country': 'Napa Valley',       
   'carmel': 'Monterey',
   'big sur': 'Monterey',
   'palm springs': 'Palm Springs',
