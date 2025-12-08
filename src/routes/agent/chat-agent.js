@@ -122,7 +122,7 @@ router.post('/chat', async (req, res) => {
       try {
         response = await anthropic.messages.create({
           model: MODEL,
-          max_tokens: 4096,
+          max_tokens: 1024,  // Reduced from 4096 - encourages shorter responses
           system: travelAgentSystemPrompt,
           tools: agentTools,
           messages: conversationMessages
