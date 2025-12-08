@@ -7,7 +7,13 @@
 // ============================================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logger } from '../utils/logger.js';
+
+// Simple logger (uses console)
+const logger = {
+  info: (...args) => console.log('[Vision]', ...args),
+  warn: (...args) => console.warn('[Vision]', ...args),
+  error: (...args) => console.error('[Vision]', ...args)
+};
 
 // ============================================================================
 // CONFIGURATION
@@ -119,15 +125,15 @@ export async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpe
     // Build context from Vision API results
     let contextHints = '';
     if (visionContext.labels?.length > 0) {
-      contextHints += `\nScene labels detected: ${visionContext.labels.map(l => l.name).join(', ')}`;
+      contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
     }
     if (visionContext.detectedText) {
-      contextHints += `\nText visible in image: "${visionContext.detectedText.substring(0, 500)}"`;
+      contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
     }
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+      max_tokens: 300,  // Reduced for faster response
       messages: [
         {
           role: 'user',
@@ -142,27 +148,10 @@ export async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpe
             },
             {
               type: 'text',
-              text: `You are a travel location identification expert. Analyze this image and identify where it was taken.
-${contextHints}
+              text: `Identify this travel location. ${contextHints}
 
-Please provide your analysis in the following JSON format:
-{
-  "identified": true/false,
-  "confidence": "high/medium/low",
-  "destination": {
-    "name": "City or specific location name",
-    "region": "State/Province/Region if applicable",
-    "country": "Country name",
-    "fullName": "Complete location string (e.g., 'Santorini, Greece' or 'Grand Canyon, Arizona, USA')"
-  },
-  "landmark": "Specific landmark if identifiable (e.g., 'Eiffel Tower', 'Colosseum')",
-  "reasoning": "Brief explanation of how you identified this location",
-  "travelTips": "One sentence about what makes this destination special for travelers"
-}
-
-If you cannot identify the location with reasonable confidence, set "identified" to false and explain why in the reasoning field.
-
-IMPORTANT: Respond ONLY with the JSON object, no other text.`
+Reply with ONLY this JSON:
+{"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
             }
           ]
         }
@@ -236,14 +225,26 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
   if (visionResult.landmarks?.length > 0) {
     // Found a landmark!
     const topLandmark = visionResult.landmarks[0];
+    const confidence = topLandmark.confidence > 0.8 ? 'high' : topLandmark.confidence > 0.5 ? 'medium' : 'low';
     
     result.success = true;
     result.source = 'google_vision';
     result.landmark = topLandmark.name;
-    result.confidence = topLandmark.confidence > 0.8 ? 'high' : topLandmark.confidence > 0.5 ? 'medium' : 'low';
+    result.confidence = confidence;
     result.coordinates = topLandmark.location;
     
-    // Use Claude to get more context about the landmark
+    // For HIGH confidence landmarks, skip Claude for speed
+    if (confidence === 'high') {
+      result.destination = {
+        name: topLandmark.name,
+        fullName: topLandmark.name
+      };
+      result.reasoning = `Identified landmark: ${topLandmark.name}`;
+      logger.info(`Fast path: High confidence landmark "${topLandmark.name}"`);
+      return result;
+    }
+    
+    // For medium/low confidence, use Claude to get more context
     const claudeResult = await analyzeImageWithClaude(imageBase64, mediaType, visionResult);
     
     if (claudeResult.success && claudeResult.identified) {
