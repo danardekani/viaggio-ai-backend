@@ -253,7 +253,5 @@ async function executeIdentifyLocation(input) {
 }
 
 // ==========================================================================
-// EXPORTS
+// EXPORTS - executeTool is exported inline above
 // ==========================================================================
-
-export { executeTool };
