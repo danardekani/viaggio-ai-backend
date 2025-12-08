@@ -5,7 +5,7 @@
 // It connects tool calls to real APIs and services.
 // ============================================================================
 
-import { searchTours } from '../../services/affiliates/viator.js';
+import { searchTours, searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
 import { identifyLocation } from '../../services/vision.js';
 
 // Simple logger (console-based)
@@ -73,8 +73,24 @@ async function executeSearchTours(input) {
   logger.info(`Searching tours in ${destination}`, { interests, start_date, end_date });
 
   try {
+    // Step 1: Use Viator's autocomplete to find the best matching destination
+    // This lets Viator's API intelligently match "Napa Valley" -> "Napa & Sonoma"
+    let searchDestination = destination;
+    
+    try {
+      const autocompleteResults = await searchDestinationsAutocomplete(destination, 1);
+      if (autocompleteResults && autocompleteResults.length > 0) {
+        const bestMatch = autocompleteResults[0];
+        searchDestination = bestMatch.name || bestMatch.destinationName || destination;
+        logger.info(`Autocomplete matched "${destination}" -> "${searchDestination}" (ID: ${bestMatch.destinationId})`);
+      }
+    } catch (autoError) {
+      logger.warn(`Autocomplete failed, using original destination: ${autoError.message}`);
+    }
+
+    // Step 2: Search for tours using the matched destination
     const tours = await searchTours({
-      destination,
+      destination: searchDestination,
       searchTerms: interests.join(' '),
       startDate: start_date,
       endDate: end_date,
@@ -93,14 +109,13 @@ async function executeSearchTours(input) {
     }
 
     // Tours are already formatted by viator.js - just pass them through
-    // viator.js returns: id, name, image, duration, rating, reviewCount, price, bookingLink, etc.
-    logger.info(`Found ${tours.length} tours in ${destination}`);
+    logger.info(`Found ${tours.length} tours in ${searchDestination}`);
 
     return {
       success: true,
-      destination,
+      destination: searchDestination,
       tourCount: tours.length,
-      tours: tours  // Pass through as-is
+      tours: tours
     };
 
   } catch (error) {
