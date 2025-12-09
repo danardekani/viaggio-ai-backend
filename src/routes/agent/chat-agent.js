@@ -73,7 +73,7 @@ router.post('/chat', async (req, res) => {
       systemInstruction: travelAgentSystemPrompt,
       tools: [{ functionDeclarations: geminiTools }],
       generationConfig: {
-        temperature: 0.7,
+        temperature: 0.5,
         topP: 0.95,
         topK: 40,
         maxOutputTokens: 2048,
