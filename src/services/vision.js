@@ -142,7 +142,7 @@ async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', vis
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.5-pro',
       generationConfig: {
-        temperature: 0.2,  // Lower temperature for more factual responses
+        temperature: 0.3,  // Lower temperature for more factual responses
         maxOutputTokens: 500,
       }
     });
