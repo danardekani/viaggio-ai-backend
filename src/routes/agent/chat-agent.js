@@ -1,8 +1,5 @@
 // ============================================================================
-// AGENTIC CHAT ROUTES - GEMINI 2.0 FLASH VERSION
-// ============================================================================
-// This is the agentic version using Google's Gemini 2.0 Flash.
-// Much faster and 97% cheaper than Claude Sonnet 4!
+// AGENTIC CHAT ROUTES - gemini-2.5-flash-lite-preview-09-2025
 // ============================================================================
 
 import express from 'express';
@@ -49,7 +46,7 @@ router.use((req, res, next) => {
 
 // Configuration
 const MAX_TOOL_ITERATIONS = 5;
-const MODEL_NAME = 'gemini-2.0-flash-exp';
+const MODEL_NAME = 'gemini-2.5-flash-lite-preview-09-2025';
 const REQUEST_TIMEOUT_MS = 55000;
 
 // ============================================================================
