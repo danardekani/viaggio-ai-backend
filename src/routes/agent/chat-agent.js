@@ -46,7 +46,7 @@ router.use((req, res, next) => {
 
 // Configuration
 const MAX_TOOL_ITERATIONS = 5;
-const MODEL_NAME = 'gemini-2.5-flash-lite-preview-09-2025';
+const MODEL_NAME = 'gemini-2.5-pro';
 const REQUEST_TIMEOUT_MS = 55000;
 
 // ============================================================================
