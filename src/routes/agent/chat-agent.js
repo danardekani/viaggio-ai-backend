@@ -96,6 +96,15 @@ router.post('/chat', async (req, res) => {
       });
     }
 
+    // =======================================================================
+    // FIX: Gemini requires history to start with a user message
+    // Remove any leading assistant/model messages (like welcome messages)
+    // =======================================================================
+    while (geminiHistory.length > 0 && geminiHistory[0].role === 'model') {
+      logger.info('Removing leading model message from history');
+      geminiHistory.shift();
+    }
+
     // Start chat session with history
     const chat = model.startChat({
       history: geminiHistory
@@ -105,10 +114,24 @@ router.post('/chat', async (req, res) => {
     let iterations = 0;
     let currentMessage = userMessage;
     let finalResponse = null;
+    const toolsUsed = [];
+    const toursFound = [];
 
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++;
       logger.info(`Tool iteration ${iterations}/${MAX_TOOL_ITERATIONS}`);
+
+      // Check timeout
+      const elapsed = Date.now() - startTime;
+      if (elapsed > REQUEST_TIMEOUT_MS) {
+        logger.warn(`Request timing out after ${elapsed}ms`);
+        return res.json({
+          message: finalResponse || "I'm taking a bit longer than expected. Could you try again?",
+          toolsUsed,
+          iterations,
+          warning: 'Request timeout'
+        });
+      }
 
       // Send message to Gemini
       const result = await chat.sendMessage(currentMessage);
@@ -138,6 +161,18 @@ router.post('/chat', async (req, res) => {
         try {
           const toolResult = await executeTool(toolName, toolInput);
           
+          // Track tool usage
+          toolsUsed.push({
+            tool: toolName,
+            input: toolInput,
+            success: !toolResult.error
+          });
+
+          // Collect tour data for card display
+          if (toolName === 'search_tours' && toolResult.success && toolResult.tours) {
+            toursFound.push(...toolResult.tours);
+          }
+
           toolResults.push({
             functionResponse: {
               name: toolName,
@@ -149,6 +184,12 @@ router.post('/chat', async (req, res) => {
         } catch (error) {
           logger.error(`Tool ${toolName} failed:`, error.message);
           
+          toolsUsed.push({
+            tool: toolName,
+            input: toolInput,
+            success: false
+          });
+
           toolResults.push({
             functionResponse: {
               name: toolName,
@@ -187,11 +228,13 @@ router.post('/chat', async (req, res) => {
     const responseTime = Date.now() - startTime;
     logger.info(`Request completed in ${responseTime}ms`);
 
-    // Return response
+    // Return response (using 'message' to match frontend expectations)
     res.json({
-      response: finalResponse,
+      message: finalResponse,
+      tours: toursFound,
+      toolsUsed,
+      iterations,
       model: MODEL_NAME,
-      iterations: iterations,
       processingTime: responseTime
     });
 
