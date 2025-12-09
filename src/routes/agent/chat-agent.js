@@ -1,21 +1,19 @@
 // ============================================================================
-// AGENTIC CHAT ROUTES 
+// AGENTIC CHAT ROUTES - GEMINI 2.0 FLASH VERSION
 // ============================================================================
-// This is the agentic version of the chat endpoint.
-// Claude can autonomously use tools to help users plan trips.
+// This is the agentic version using Google's Gemini 2.0 Flash.
+// Much faster and 97% cheaper than Claude Sonnet 4!
 // ============================================================================
 
 import express from 'express';
-import Anthropic from '@anthropic-ai/sdk';
-import { agentTools, travelAgentSystemPrompt } from './agent-tools.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { geminiTools, travelAgentSystemPrompt } from './agent-tools.js';
 import { executeTool } from './agent-executor.js';
 
 const router = express.Router();
 
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
+// Initialize Gemini client
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Simple logger
 const logger = {
@@ -25,12 +23,12 @@ const logger = {
 };
 
 // ==========================================================================
-// CORS MIDDLEWARE - Ensure CORS headers are always set
+// CORS MIDDLEWARE
 // ==========================================================================
 const ALLOWED_ORIGINS = [
   'https://viaggio-ai.vercel.app',
-  'http://localhost:5173',  // Local development
-  'http://localhost:3000'   // Local development alternative
+  'http://localhost:5173',
+  'http://localhost:3000'
 ];
 
 router.use((req, res, next) => {
@@ -50,12 +48,12 @@ router.use((req, res, next) => {
 });
 
 // Configuration
-const MAX_TOOL_ITERATIONS = 5;  // Reduced from 10 for faster responses
-const MODEL = 'claude-sonnet-4-20250514';
-const REQUEST_TIMEOUT_MS = 55000;  // 55 seconds (under Railway's 60s limit)
+const MAX_TOOL_ITERATIONS = 5;
+const MODEL_NAME = 'gemini-2.0-flash-exp';
+const REQUEST_TIMEOUT_MS = 55000;
 
 // ============================================================================
-// POST /api/agent/chat - Agentic Chat Endpoint
+// POST /api/agent/chat - Agentic Chat Endpoint (Gemini)
 // ============================================================================
 
 router.post('/chat', async (req, res) => {
@@ -72,218 +70,172 @@ router.post('/chat', async (req, res) => {
 
     logger.info(`Processing agentic chat request with ${messages.length} messages`);
 
-    // Build conversation history for Claude
-    let conversationMessages = messages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
-
-    // Track tool usage for this request
-    const toolsUsed = [];
-    const toursFound = [];  // Collect tour data for card display
-    let iterations = 0;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-
-    // =======================================================================
-    // THE AGENTIC LOOP
-    // =======================================================================
-    // Keep calling Claude until it gives a final text response (no tool use)
-    // =======================================================================
-
-    while (iterations < MAX_TOOL_ITERATIONS) {
-      // Check if we're running out of time
-      const elapsed = Date.now() - startTime;
-      if (elapsed > REQUEST_TIMEOUT_MS) {
-        logger.warn(`Request timing out after ${elapsed}ms`);
-        const partialText = conversationMessages
-          .filter(m => m.role === 'assistant' && typeof m.content === 'string')
-          .map(m => m.content)
-          .join('\n');
-        
-        return res.json({
-          message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
-          toolsUsed,
-          iterations,
-          warning: 'Request timeout - partial response',
-          usage: {
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            totalTokens: totalInputTokens + totalOutputTokens
-          }
-        });
+    // Initialize Gemini model with tools
+    const model = genAI.getGenerativeModel({
+      model: MODEL_NAME,
+      systemInstruction: travelAgentSystemPrompt,
+      tools: [{ functionDeclarations: geminiTools }],
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        topK: 40,
+        maxOutputTokens: 2048,
       }
+    });
 
-      iterations++;
-      logger.info(`Agent loop iteration ${iterations} (${elapsed}ms elapsed)`);
-
-      // Call Claude with tools
-      let response;
-      try {
-        response = await anthropic.messages.create({
-          model: MODEL,
-          max_tokens: 1024,  // Reduced from 4096 - encourages shorter responses
-          system: travelAgentSystemPrompt,
-          tools: agentTools,
-          messages: conversationMessages
-        });
-      } catch (apiError) {
-        logger.error('Claude API error:', apiError.message);
-        return res.json({
-          message: "I'm having trouble connecting to my brain right now. Could you try again in a moment?",
-          error: apiError.message,
-          toolsUsed,
-          iterations
-        });
-      }
-
-      // Track token usage
-      totalInputTokens += response.usage?.input_tokens || 0;
-      totalOutputTokens += response.usage?.output_tokens || 0;
-
-      // Check stop reason
-      const stopReason = response.stop_reason;
-      logger.info(`Stop reason: ${stopReason}`);
-
-      // Look for tool use in the response
-      const toolUseBlocks = response.content.filter(block => block.type === 'tool_use');
-      const textBlocks = response.content.filter(block => block.type === 'text');
-
-      // If no tool use, we have our final response
-      if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
-        const finalText = textBlocks.map(b => b.text).join('\n');
-        
-        logger.info(`Agent complete after ${iterations} iterations, ${toolsUsed.length} tool calls, ${toursFound.length} tours found`);
-
-        return res.json({
-          message: finalText,
-          tours: toursFound,  // Include tour data for card rendering
-          toolsUsed,
-          iterations,
-          usage: {
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            totalTokens: totalInputTokens + totalOutputTokens
-          }
-        });
-      }
-
-      // =======================================================================
-      // TOOL EXECUTION
-      // =======================================================================
-
-      // Add Claude's response (with tool use) to conversation
-      conversationMessages.push({
-        role: 'assistant',
-        content: response.content
-      });
-
-      // Execute each tool and collect results
-      const toolResults = [];
-
-      for (const toolUse of toolUseBlocks) {
-        logger.info(`Executing tool: ${toolUse.name}`);
-        
-        // Execute the tool
-        const result = await executeTool(toolUse.name, toolUse.input);
-        
-        // Track tool usage
-        toolsUsed.push({
-          tool: toolUse.name,
-          input: toolUse.input,
-          success: !result.error
-        });
-
-        // Collect tour data for card display
-        if (toolUse.name === 'search_tours' && result.success && result.tours) {
-          toursFound.push(...result.tours);
-        }
-
-        // Add result to collection
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: JSON.stringify(result)
-        });
-      }
-
-      // Add tool results to conversation
-      conversationMessages.push({
-        role: 'user',
-        content: toolResults
+    // Convert messages to Gemini format
+    const geminiHistory = [];
+    const userMessage = messages[messages.length - 1].content;
+    
+    // Add conversation history (all messages except the last one)
+    for (let i = 0; i < messages.length - 1; i++) {
+      const msg = messages[i];
+      geminiHistory.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
       });
     }
 
-    // If we hit max iterations, return what we have
-    logger.warn(`Hit max iterations (${MAX_TOOL_ITERATIONS})`);
-    
-    return res.json({
-      message: "I've been working on this for a while. Let me summarize what I found so far. Could you try a more specific question?",
-      toolsUsed,
-      iterations,
-      warning: 'Maximum iterations reached',
-      usage: {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        totalTokens: totalInputTokens + totalOutputTokens
+    // Start chat session with history
+    const chat = model.startChat({
+      history: geminiHistory
+    });
+
+    // Tool execution loop
+    let iterations = 0;
+    let currentMessage = userMessage;
+    let finalResponse = null;
+
+    while (iterations < MAX_TOOL_ITERATIONS) {
+      iterations++;
+      logger.info(`Tool iteration ${iterations}/${MAX_TOOL_ITERATIONS}`);
+
+      // Send message to Gemini
+      const result = await chat.sendMessage(currentMessage);
+      const response = result.response;
+
+      // Check if Gemini wants to use tools
+      const functionCalls = response.functionCalls();
+      
+      if (!functionCalls || functionCalls.length === 0) {
+        // No tools requested - this is the final response
+        finalResponse = response.text();
+        logger.info(`Final response generated (no tools requested)`);
+        break;
       }
+
+      logger.info(`Gemini requested ${functionCalls.length} tool(s)`);
+
+      // Execute all requested tools
+      const toolResults = [];
+      
+      for (const functionCall of functionCalls) {
+        const toolName = functionCall.name;
+        const toolInput = functionCall.args;
+
+        logger.info(`Executing tool: ${toolName}`, JSON.stringify(toolInput));
+
+        try {
+          const toolResult = await executeTool(toolName, toolInput);
+          
+          toolResults.push({
+            functionResponse: {
+              name: toolName,
+              response: toolResult
+            }
+          });
+
+          logger.info(`Tool ${toolName} completed successfully`);
+        } catch (error) {
+          logger.error(`Tool ${toolName} failed:`, error.message);
+          
+          toolResults.push({
+            functionResponse: {
+              name: toolName,
+              response: {
+                error: true,
+                message: `Tool execution failed: ${error.message}`
+              }
+            }
+          });
+        }
+      }
+
+      // Send tool results back to Gemini
+      const toolResultMessage = await chat.sendMessage(toolResults);
+      
+      // Check if this response is final
+      const nextFunctionCalls = toolResultMessage.response.functionCalls();
+      
+      if (!nextFunctionCalls || nextFunctionCalls.length === 0) {
+        // Gemini has processed tool results and generated final response
+        finalResponse = toolResultMessage.response.text();
+        logger.info(`Final response generated after tool execution`);
+        break;
+      }
+
+      // Gemini wants to call more tools - continue loop
+      currentMessage = toolResultMessage.response.text();
+    }
+
+    // Check if we hit max iterations without a final response
+    if (iterations >= MAX_TOOL_ITERATIONS && !finalResponse) {
+      logger.warn(`Hit max tool iterations (${MAX_TOOL_ITERATIONS})`);
+      finalResponse = "I've gathered the information, but let me know if you need anything else!";
+    }
+
+    const responseTime = Date.now() - startTime;
+    logger.info(`Request completed in ${responseTime}ms`);
+
+    // Return response
+    res.json({
+      response: finalResponse,
+      model: MODEL_NAME,
+      iterations: iterations,
+      processingTime: responseTime
     });
 
   } catch (error) {
-    logger.error('Agentic chat error:', error);
+    const responseTime = Date.now() - startTime;
+    logger.error('Chat request failed:', error);
     
-    return res.status(500).json({
-      error: 'Failed to process request',
-      message: error.message
+    // Handle specific Gemini errors
+    if (error.message?.includes('API_KEY')) {
+      return res.status(401).json({
+        error: 'Invalid or missing Gemini API key',
+        details: 'Please check GEMINI_API_KEY environment variable'
+      });
+    }
+    
+    if (error.message?.includes('quota')) {
+      return res.status(429).json({
+        error: 'API quota exceeded',
+        details: 'Please check your Gemini API usage limits'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to process chat request',
+      message: error.message,
+      processingTime: responseTime
     });
   }
 });
 
 // ============================================================================
-// GET /api/agent/health - Health Check
+// Health Check Endpoint
 // ============================================================================
 
 router.get('/health', (req, res) => {
+  const hasApiKey = !!process.env.GEMINI_API_KEY;
+  
   res.json({
     status: 'ok',
-    mode: 'agentic',
-    model: MODEL,
-    toolsAvailable: agentTools.map(t => t.name),
-    maxIterations: MAX_TOOL_ITERATIONS
+    model: MODEL_NAME,
+    provider: 'Google Gemini',
+    apiKeyConfigured: hasApiKey,
+    maxToolIterations: MAX_TOOL_ITERATIONS
   });
 });
-
-// ============================================================================
-// GET /api/agent/tools - List Available Tools
-// ============================================================================
-
-router.get('/tools', (req, res) => {
-  const toolSummaries = agentTools.map(tool => ({
-    name: tool.name,
-    description: tool.description.split('\n')[0], // First line only
-    requiredParams: tool.input_schema.required || [],
-    status: getToolStatus(tool.name)
-  }));
-
-  res.json({
-    tools: toolSummaries
-  });
-});
-
-// Helper to indicate tool status
-function getToolStatus(toolName) {
-  switch (toolName) {
-    case 'search_tours':
-      return 'active';
-    case 'search_flights':
-    case 'search_hotels':
-      return 'coming_soon';
-    case 'get_destination_info':
-    case 'identify_location':
-      return 'active';
-    default:
-      return 'unknown';
-  }
-}
 
 export default router;
