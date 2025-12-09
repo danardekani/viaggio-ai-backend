@@ -66,7 +66,7 @@ export async function detectLandmarks(imageBase64) {
           content: imageBase64
         },
         features: [
-          { type: 'LANDMARK_DETECTION', maxResults: 5 },
+          { type: 'LANDMARK_DETECTION', maxResults: 10 },
           { type: 'LABEL_DETECTION', maxResults: 10 },
           { type: 'TEXT_DETECTION', maxResults: 5 }
         ]
