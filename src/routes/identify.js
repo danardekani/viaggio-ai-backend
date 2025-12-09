@@ -29,7 +29,7 @@ const router = express.Router();
  * Response:
  * {
  *   success: true,
- *   source: "google_vision" | "claude_ai",
+ *   source: "google_vision" | "gemini_ai" | "claude_ai",
  *   destination: {
  *     name: "Santorini",
  *     region: "Cyclades",
@@ -119,15 +119,22 @@ router.post('/', async (req, res, next) => {
 
 router.get('/health', (req, res) => {
   const hasVisionKey = !!process.env.GOOGLE_VISION_API_KEY;
+  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
   const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+
+  // Determine which AI fallback is configured
+  // Currently using Gemini - update this comment when switching
+  const activeAIProvider = 'gemini';  // Change to 'claude' when switching
 
   res.json({
     status: 'ok',
     services: {
       googleVision: hasVisionKey ? 'configured' : 'not configured',
-      claudeAI: hasAnthropicKey ? 'configured' : 'not configured'
+      geminiAI: hasGeminiKey ? 'configured' : 'not configured',
+      claudeAI: hasAnthropicKey ? 'configured' : 'not configured',
+      activeAIFallback: activeAIProvider
     },
-    message: hasVisionKey || hasAnthropicKey 
+    message: hasVisionKey || hasGeminiKey || hasAnthropicKey 
       ? 'Location identification service is ready'
       : 'Warning: No API keys configured'
   });
