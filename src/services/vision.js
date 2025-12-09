@@ -1,12 +1,32 @@
 // ============================================================================
-// VISION SERVICE - Google Cloud Vision + Claude Fallback
+// VISION SERVICE - Google Cloud Vision + AI Fallback
 // ============================================================================
 // Identifies locations from images using:
 // 1. Google Cloud Vision API (landmark detection)
-// 2. Claude AI fallback (text/scene analysis)
+// 2. AI fallback (Gemini or Claude - toggle below)
 // ============================================================================
 
-import Anthropic from '@anthropic-ai/sdk';
+// ==========================================================================
+// AI PROVIDER TOGGLE - Uncomment ONE of the following sections
+// ==========================================================================
+
+// --------------------------------------------------------------------------
+// OPTION A: GEMINI (currently active)
+// --------------------------------------------------------------------------
+import { GoogleGenerativeAI } from '@google/generative-ai';
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const AI_PROVIDER = 'gemini';
+
+// --------------------------------------------------------------------------
+// OPTION B: CLAUDE (commented out)
+// --------------------------------------------------------------------------
+// import Anthropic from '@anthropic-ai/sdk';
+// const anthropic = new Anthropic({
+//   apiKey: process.env.ANTHROPIC_API_KEY
+// });
+// const AI_PROVIDER = 'claude';
+
+// ==========================================================================
 
 // Simple logger (uses console)
 const logger = {
@@ -21,10 +41,6 @@ const logger = {
 
 const GOOGLE_VISION_API_KEY = process.env.GOOGLE_VISION_API_KEY;
 const GOOGLE_VISION_ENDPOINT = 'https://vision.googleapis.com/v1/images:annotate';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
 
 // ============================================================================
 // GOOGLE CLOUD VISION - LANDMARK DETECTION
@@ -108,58 +124,59 @@ export async function detectLandmarks(imageBase64) {
 }
 
 // ============================================================================
-// CLAUDE FALLBACK - AI IMAGE ANALYSIS
+// GEMINI - AI IMAGE ANALYSIS
 // ============================================================================
 
 /**
- * Use Claude to analyze an image and identify the location
+ * Use Gemini to analyze an image and identify the location
  * @param {string} imageBase64 - Base64 encoded image
  * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
  * @param {Object} visionContext - Context from Google Vision (labels, text)
  * @returns {Promise<Object>} - Identified location information
  */
-export async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
   try {
-    logger.info('Analyzing image with Claude for location identification...');
+    logger.info('Analyzing image with Gemini for location identification...');
+
+    // Initialize Gemini model
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash-lite',
+      generationConfig: {
+        temperature: 0.3,  // Lower temperature for more factual responses
+        maxOutputTokens: 500,
+      }
+    });
 
     // Build context from Vision API results
     let contextHints = '';
     if (visionContext.labels?.length > 0) {
-      contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+      contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
     }
     if (visionContext.detectedText) {
-      contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
+      contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
     }
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 300,  // Reduced for faster response
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: imageBase64
-              }
-            },
-            {
-              type: 'text',
-              text: `Identify this travel location. ${contextHints}
+    const prompt = `Identify this travel location. ${contextHints}
 
-Reply with ONLY this JSON:
-{"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
-            }
-          ]
-        }
-      ]
-    });
+Reply with ONLY this JSON (no markdown, no code blocks):
+{"identified":true,"confidence":"high","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}
 
-    const responseText = response.content[0].text.trim();
-    
+If you cannot identify the location, respond with:
+{"identified":false,"confidence":"low","destination":null,"landmark":null,"reasoning":"Why it couldn't be identified"}`;
+
+    // Create the image part for Gemini
+    const imagePart = {
+      inlineData: {
+        data: imageBase64,
+        mimeType: mediaType
+      }
+    };
+
+    // Generate content with image
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = result.response;
+    const responseText = response.text().trim();
+
     // Parse the JSON response
     try {
       // Remove markdown code blocks if present
@@ -167,16 +184,16 @@ Reply with ONLY this JSON:
       if (jsonText.startsWith('```')) {
         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
       }
-      
+
       const analysis = JSON.parse(jsonText);
-      logger.info(`Claude identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
-      
+      logger.info(`Gemini identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
+
       return {
         success: true,
         ...analysis
       };
     } catch (parseError) {
-      logger.error('Failed to parse Claude response as JSON:', responseText);
+      logger.error('Failed to parse Gemini response as JSON:', responseText);
       return {
         success: false,
         identified: false,
@@ -186,7 +203,7 @@ Reply with ONLY this JSON:
     }
 
   } catch (error) {
-    logger.error('Claude image analysis error:', error);
+    logger.error('Gemini image analysis error:', error);
     return {
       success: false,
       identified: false,
@@ -196,17 +213,124 @@ Reply with ONLY this JSON:
 }
 
 // ============================================================================
+// CLAUDE - AI IMAGE ANALYSIS (commented out)
+// ============================================================================
+
+// /**
+//  * Use Claude to analyze an image and identify the location
+//  * @param {string} imageBase64 - Base64 encoded image
+//  * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
+//  * @param {Object} visionContext - Context from Google Vision (labels, text)
+//  * @returns {Promise<Object>} - Identified location information
+//  */
+// async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+//   try {
+//     logger.info('Analyzing image with Claude for location identification...');
+//
+//     // Build context from Vision API results
+//     let contextHints = '';
+//     if (visionContext.labels?.length > 0) {
+//       contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+//     }
+//     if (visionContext.detectedText) {
+//       contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
+//     }
+//
+//     const response = await anthropic.messages.create({
+//       model: 'claude-sonnet-4-20250514',
+//       max_tokens: 300,  // Reduced for faster response
+//       messages: [
+//         {
+//           role: 'user',
+//           content: [
+//             {
+//               type: 'image',
+//               source: {
+//                 type: 'base64',
+//                 media_type: mediaType,
+//                 data: imageBase64
+//               }
+//             },
+//             {
+//               type: 'text',
+//               text: `Identify this travel location. ${contextHints}
+//
+// Reply with ONLY this JSON:
+// {"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
+//             }
+//           ]
+//         }
+//       ]
+//     });
+//
+//     const responseText = response.content[0].text.trim();
+//
+//     // Parse the JSON response
+//     try {
+//       // Remove markdown code blocks if present
+//       let jsonText = responseText;
+//       if (jsonText.startsWith('```')) {
+//         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
+//       }
+//
+//       const analysis = JSON.parse(jsonText);
+//       logger.info(`Claude identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
+//
+//       return {
+//         success: true,
+//         ...analysis
+//       };
+//     } catch (parseError) {
+//       logger.error('Failed to parse Claude response as JSON:', responseText);
+//       return {
+//         success: false,
+//         identified: false,
+//         reasoning: 'Failed to parse AI response',
+//         rawResponse: responseText
+//       };
+//     }
+//
+//   } catch (error) {
+//     logger.error('Claude image analysis error:', error);
+//     return {
+//       success: false,
+//       identified: false,
+//       error: error.message
+//     };
+//   }
+// }
+
+// ============================================================================
+// AI ANALYSIS ROUTER - Routes to active provider
+// ============================================================================
+
+/**
+ * Analyze image with the currently active AI provider
+ */
+async function analyzeImageWithAI(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+  // --------------------------------------------------------------------------
+  // Toggle which AI provider to use by commenting/uncommenting
+  // --------------------------------------------------------------------------
+  
+  // GEMINI (currently active)
+  return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
+  
+  // CLAUDE (commented out)
+  // return await analyzeImageWithClaude(imageBase64, mediaType, visionContext);
+}
+
+// ============================================================================
 // MAIN IDENTIFICATION FUNCTION
 // ============================================================================
 
 /**
- * Identify location from an image using Vision API + Claude fallback
+ * Identify location from an image using Vision API + AI fallback
  * @param {string} imageBase64 - Base64 encoded image (without data URL prefix)
  * @param {string} mediaType - Image MIME type
  * @returns {Promise<Object>} - Complete identification result
  */
 export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
-  logger.info('Starting location identification...');
+  logger.info(`Starting location identification (AI Provider: ${AI_PROVIDER})...`);
 
   const result = {
     success: false,
@@ -226,14 +350,14 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
     // Found a landmark!
     const topLandmark = visionResult.landmarks[0];
     const confidence = topLandmark.confidence > 0.8 ? 'high' : topLandmark.confidence > 0.5 ? 'medium' : 'low';
-    
+
     result.success = true;
     result.source = 'google_vision';
     result.landmark = topLandmark.name;
     result.confidence = confidence;
     result.coordinates = topLandmark.location;
-    
-    // For HIGH confidence landmarks, skip Claude for speed
+
+    // For HIGH confidence landmarks, skip AI for speed
     if (confidence === 'high') {
       result.destination = {
         name: topLandmark.name,
@@ -243,14 +367,14 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
       logger.info(`Fast path: High confidence landmark "${topLandmark.name}"`);
       return result;
     }
-    
-    // For medium/low confidence, use Claude to get more context
-    const claudeResult = await analyzeImageWithClaude(imageBase64, mediaType, visionResult);
-    
-    if (claudeResult.success && claudeResult.identified) {
-      result.destination = claudeResult.destination;
-      result.reasoning = claudeResult.reasoning;
-      result.travelTips = claudeResult.travelTips;
+
+    // For medium/low confidence, use AI to get more context
+    const aiResult = await analyzeImageWithAI(imageBase64, mediaType, visionResult);
+
+    if (aiResult.success && aiResult.identified) {
+      result.destination = aiResult.destination;
+      result.reasoning = aiResult.reasoning;
+      result.travelTips = aiResult.travelTips;
     } else {
       // Fallback: use landmark name as destination
       result.destination = {
@@ -264,28 +388,28 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
     return result;
   }
 
-  // Step 2: No landmark found, use Claude as primary analyzer
-  logger.info('No landmarks detected, falling back to Claude analysis...');
-  
-  const claudeResult = await analyzeImageWithClaude(imageBase64, mediaType, visionResult);
+  // Step 2: No landmark found, use AI as primary analyzer
+  logger.info(`No landmarks detected, falling back to ${AI_PROVIDER} analysis...`);
 
-  if (claudeResult.success && claudeResult.identified) {
+  const aiResult = await analyzeImageWithAI(imageBase64, mediaType, visionResult);
+
+  if (aiResult.success && aiResult.identified) {
     result.success = true;
-    result.source = 'claude_ai';
-    result.destination = claudeResult.destination;
-    result.landmark = claudeResult.landmark || null;
-    result.confidence = claudeResult.confidence;
-    result.reasoning = claudeResult.reasoning;
-    result.travelTips = claudeResult.travelTips;
+    result.source = `${AI_PROVIDER}_ai`;
+    result.destination = aiResult.destination;
+    result.landmark = aiResult.landmark || null;
+    result.confidence = aiResult.confidence;
+    result.reasoning = aiResult.reasoning;
+    result.travelTips = aiResult.travelTips;
 
-    logger.info(`Location identified via Claude: ${result.destination?.fullName}`);
+    logger.info(`Location identified via ${AI_PROVIDER}: ${result.destination?.fullName}`);
     return result;
   }
 
   // Step 3: Could not identify location
   result.success = false;
-  result.reasoning = claudeResult.reasoning || 'Could not identify the location in this image';
-  
+  result.reasoning = aiResult.reasoning || 'Could not identify the location in this image';
+
   logger.info('Could not identify location from image');
   return result;
 }
@@ -296,6 +420,6 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
 
 export default {
   detectLandmarks,
-  analyzeImageWithClaude,
+  analyzeImageWithAI,
   identifyLocation
 };
