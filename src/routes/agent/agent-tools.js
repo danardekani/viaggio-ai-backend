@@ -1,26 +1,18 @@
 // ============================================================================
-// AGENT TOOLS - Tool Definitions for Agentic AI
+// AGENT TOOLS - GEMINI FORMAT
 // ============================================================================
-// These definitions tell Claude what tools it can use and how to use them.
-// Claude will autonomously decide when to call these based on user requests.
+// Tool definitions for Google Gemini 2.0 Flash.
+// These use Gemini's function declaration format.
 // ============================================================================
 
-export const agentTools = [
+export const geminiTools = [
   // ==========================================================================
-  // TOUR SEARCH TOOL (Active - uses Viator API)
+  // TOUR SEARCH TOOL
   // ==========================================================================
   {
     name: 'search_tours',
-    description: `Search for tours, activities, and experiences in a destination using the Viator API.
-    
-Use this tool when the user wants to:
-- Find things to do in a city
-- Look for specific activities (food tours, walking tours, museums, etc.)
-- Browse experiences for a trip
-- Find tours within a budget or date range
-
-The tool returns real, bookable tours with prices, ratings, and availability.`,
-    input_schema: {
+    description: `Search for tours, activities, and experiences in a destination using the Viator API. Use this tool when the user wants to find things to do in a city, look for specific activities (food tours, walking tours, museums, etc.), browse experiences for a trip, or find tours within a budget or date range. The tool returns real, bookable tours with prices, ratings, and availability.`,
+    parameters: {
       type: 'object',
       properties: {
         destination: {
@@ -58,20 +50,12 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
   },
 
   // ==========================================================================
-  // FLIGHT SEARCH TOOL (Placeholder - for future Amadeus/Duffel integration)
+  // FLIGHT SEARCH TOOL
   // ==========================================================================
   {
     name: 'search_flights',
-    description: `Search for flights between two cities.
-    
-Use this tool when the user wants to:
-- Find flights to a destination
-- Compare flight prices
-- Look for flights on specific dates
-- Check flight options for a trip
-
-NOTE: This tool is not yet connected to a live API. It will return a message indicating flights are coming soon.`,
-    input_schema: {
+    description: `Search for flights between two cities. Use this tool when the user wants to find flights to a destination, compare flight prices, look for flights on specific dates, or check flight options for a trip. NOTE: This tool is not yet connected to a live API. It will return a message indicating flights are coming soon.`,
+    parameters: {
       type: 'object',
       properties: {
         origin: {
@@ -105,20 +89,12 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
   },
 
   // ==========================================================================
-  // HOTEL SEARCH TOOL (Placeholder - for future Booking.com integration)
+  // HOTEL SEARCH TOOL
   // ==========================================================================
   {
     name: 'search_hotels',
-    description: `Search for hotels and accommodations in a destination.
-    
-Use this tool when the user wants to:
-- Find hotels in a city
-- Look for accommodations for specific dates
-- Compare hotel prices
-- Find hotels within a budget
-
-NOTE: This tool is not yet connected to a live API. It will return a message indicating hotels are coming soon.`,
-    input_schema: {
+    description: `Search for hotels and accommodations in a destination. Use this tool when the user wants to find hotels in a city, look for accommodations for specific dates, compare hotel prices, or find hotels within a budget. NOTE: This tool is not yet connected to a live API. It will return a message indicating hotels are coming soon.`,
+    parameters: {
       type: 'object',
       properties: {
         destination: {
@@ -155,20 +131,12 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
   },
 
   // ==========================================================================
-  // DESTINATION INFO TOOL (Uses Claude's knowledge)
+  // DESTINATION INFO TOOL
   // ==========================================================================
   {
     name: 'get_destination_info',
-    description: `Get information about a travel destination including best time to visit, local tips, neighborhoods, and travel advice.
-    
-Use this tool when the user wants to:
-- Learn about a destination before booking
-- Get recommendations for areas to stay
-- Understand the best time to visit
-- Get local tips and cultural information
-
-This tool uses AI knowledge to provide helpful destination information.`,
-    input_schema: {
+    description: `Get information about a travel destination including best time to visit, local tips, neighborhoods, and travel advice. Use this tool when the user wants to learn about a destination before booking, get recommendations for areas to stay, understand the best time to visit, or get local tips and cultural information. This tool uses AI knowledge to provide helpful destination information.`,
+    parameters: {
       type: 'object',
       properties: {
         destination: {
@@ -186,19 +154,12 @@ This tool uses AI knowledge to provide helpful destination information.`,
   },
 
   // ==========================================================================
-  // IDENTIFY LOCATION TOOL (Uses Google Vision + Claude)
+  // IDENTIFY LOCATION TOOL
   // ==========================================================================
   {
     name: 'identify_location',
-    description: `Identify a travel destination from an image. This is used with the "Where Is This?" feature.
-    
-Use this tool when the user:
-- Uploads an image and asks where it is
-- Wants to identify a landmark or destination from a photo
-- Shares a travel photo and wants to visit that place
-
-The tool uses Google Cloud Vision for landmark detection and AI analysis for scene recognition.`,
-    input_schema: {
+    description: `Identify a travel destination from an image. This is used with the "Where Is This?" feature. Use this tool when the user uploads an image and asks where it is, wants to identify a landmark or destination from a photo, or shares a travel photo and wants to visit that place. The tool uses Google Cloud Vision for landmark detection and AI analysis for scene recognition.`,
+    parameters: {
       type: 'object',
       properties: {
         image_base64: {
@@ -222,7 +183,7 @@ The tool uses Google Cloud Vision for landmark detection and AI analysis for sce
 export const travelAgentSystemPrompt = `You are Via, the travel expert for Viaggio.ai. Friendly, knowledgeable, and concise.
 
 TOOLS:
-- search_tours: Find activities (WORKING)
+- search_tours: Find activities (WORKING - returns real Viator tours)
 - search_flights/search_hotels: COMING SOON (mention this if asked)
 - get_destination_info: Destination tips
 - identify_location: ID places from photos
@@ -253,4 +214,4 @@ DO:
 - Ask ONE follow-up question
 - Mention price ranges briefly`;
 
-export default { agentTools, travelAgentSystemPrompt };
+export default { geminiTools, travelAgentSystemPrompt };
