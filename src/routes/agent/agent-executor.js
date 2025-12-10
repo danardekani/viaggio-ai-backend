@@ -163,97 +163,42 @@ async function executeSearchFlights(input) {
 // ==========================================================================
 
 async function executeSearchHotels(input) {
-  const { 
-    destination, 
-    check_in, 
-    check_out, 
-    guests = 2, 
-    rooms = 1, 
-    max_price_per_night 
-  } = input;
+  const { destination, check_in, check_out, guests = 2, rooms = 1, max_price_per_night } = input;
 
-  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests, rooms });
+  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests });
 
   try {
-    // Call the HotelBeds API
     const hotels = await searchHotels({
       destination,
       checkIn: check_in,
       checkOut: check_out,
       adults: guests,
-      children: 0,
       rooms,
-      currency: 'USD',
       resultCount: 10
     });
 
-    // Filter by price if specified
-    let filteredHotels = hotels;
-    if (max_price_per_night) {
-      filteredHotels = hotels.filter(h => {
-        const pricePerNight = parseFloat(h.pricePerNight);
-        return pricePerNight <= max_price_per_night;
-      });
-    }
-
-    if (!filteredHotels || filteredHotels.length === 0) {
+    if (!hotels || hotels.length === 0) {
       return {
         success: true,
         hotels: [],
-        message: `No hotels found in ${destination} for those dates matching your criteria.`,
-        suggestion: 'Try different dates or adjusting your budget.',
-        searchedFor: {
-          destination,
-          check_in,
-          check_out,
-          guests,
-          rooms
-        }
+        message: `No hotels found in ${destination} for those dates.`,
+        suggestion: 'Try different dates or a nearby destination.'
       };
     }
-
-    logger.info(`Found ${filteredHotels.length} hotels in ${destination}`);
 
     return {
       success: true,
       destination,
-      hotelCount: filteredHotels.length,
-      hotels: filteredHotels,
-      searchedFor: {
-        destination,
-        check_in,
-        check_out,
-        guests,
-        rooms
-      }
+      hotelCount: hotels.length,
+      hotels
     };
 
   } catch (error) {
     logger.error('Hotel search failed:', error.message);
-    
-    // If it's a destination not found error, be helpful
-    if (error.message.includes('Destination not found')) {
-      return {
-        error: true,
-        message: `I couldn't find "${destination}" in our hotel database. Could you try a different city name? For example, try "New York" instead of "NYC".`,
-        suggestion: 'Try using the full city name, like "New York", "London", or "Paris".',
-        searchedFor: {
-          destination,
-          check_in,
-          check_out
-        }
-      };
-    }
-
     return {
       error: true,
       message: `Unable to search hotels: ${error.message}`,
-      suggestion: 'Please try again or try a different destination.',
-      searchedFor: {
-        destination,
-        check_in,
-        check_out
-      }
+      suggestion: 'Please try again or try a different destination.'
     };
   }
 }
