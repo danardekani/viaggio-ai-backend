@@ -119,7 +119,8 @@ Use this tool when the user wants to:
 
 The tool returns real hotels with prices, ratings, and availability.`,
 
-IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
+IMPORTANT: 'Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
+  
     input_schema: {
       type: 'object',
       properties: {
