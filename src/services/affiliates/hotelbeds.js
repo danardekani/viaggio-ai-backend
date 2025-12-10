@@ -86,7 +86,7 @@ export async function fetchDestinations() {
 
   try {
     const response = await fetch(
-      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=eng`,
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG`,
       {
         method: 'GET',
         headers: getHeaders()
