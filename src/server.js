@@ -13,6 +13,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
+import hotelRoutes from './routes/hotels.js';    // at top
 
 // Import routes
 import trackingRoutes from './routes/tracking.js';
@@ -62,6 +63,9 @@ app.use('/api/', rateLimiter);
 
 // Get tours from viator
 app.use('/api/tours', tourRoutes);
+
+// Get hotels from hotelbeds
+app.use('/api/hotels', hotelRoutes)
 
 // Where is this destination?
 app.use('/api/identify', identifyRoutes);
