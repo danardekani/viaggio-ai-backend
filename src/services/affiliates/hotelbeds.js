@@ -113,6 +113,19 @@ export async function fetchDestinations() {
 }
 
 /**
+ * Helper to extract name string from HotelBeds name field
+ * HotelBeds returns name as { content: "City Name" } not just "City Name"
+ */
+function getDestinationName(destination) {
+  if (!destination.name) return '';
+  if (typeof destination.name === 'string') return destination.name;
+  if (typeof destination.name === 'object' && destination.name.content) {
+    return destination.name.content;
+  }
+  return '';
+}
+
+/**
  * Find destination by name (fuzzy matching)
  */
 async function findDestination(destinationName) {
@@ -120,19 +133,30 @@ async function findDestination(destinationName) {
   const searchLower = destinationName.toLowerCase().trim();
   
   // Try exact match first
-  let match = destinations.find(d => 
-    d.name?.toLowerCase() === searchLower
-  );
+  let match = destinations.find(d => {
+    const name = getDestinationName(d);
+    return name.toLowerCase() === searchLower;
+  });
   
   // Try partial match
   if (!match) {
-    match = destinations.find(d => 
-      d.name?.toLowerCase().includes(searchLower)
-    );
+    match = destinations.find(d => {
+      const name = getDestinationName(d);
+      return name.toLowerCase().includes(searchLower);
+    });
+  }
+  
+  // Try reverse partial match (search term contains destination)
+  if (!match) {
+    match = destinations.find(d => {
+      const name = getDestinationName(d);
+      return searchLower.includes(name.toLowerCase()) && name.length > 3;
+    });
   }
   
   if (match) {
-    logger.info(`Matched destination: "${destinationName}" → ${match.name} (${match.code})`);
+    const matchName = getDestinationName(match);
+    logger.info(`Matched destination: "${destinationName}" → ${matchName} (${match.code})`);
   }
   
   return match;
@@ -464,9 +488,6 @@ function buildBookingLink(hotelCode, checkIn, checkOut) {
 // DESTINATION SEARCH & AUTOCOMPLETE
 // ============================================================================
 
-/**
- * Search destinations for autocomplete
- */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
     return [];
@@ -477,9 +498,13 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   
   // Score and filter destinations
   const scored = destinations
-    .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+    .filter(d => {
+      const name = getDestinationName(d);
+      return name && name.toLowerCase().includes(searchLower);
+    })
     .map(d => {
-      const nameLower = d.name.toLowerCase();
+      const name = getDestinationName(d);
+      const nameLower = name.toLowerCase();
       let score = 0;
       
       // Exact match gets highest score
@@ -489,16 +514,16 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       // Contains search term
       else score = 50;
       
-      return { ...d, score };
+      return { ...d, _name: name, score };
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
   return scored.map(d => ({
     code: d.code,
-    name: d.name,
+    name: d._name,
     countryCode: d.countryCode,
-    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+    displayName: d.countryCode ? `${d._name}, ${d.countryCode}` : d._name
   }));
 }
 
@@ -507,12 +532,15 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
  */
 export async function getDestinations() {
   const destinations = await fetchDestinations();
-  return destinations.map(d => ({
-    code: d.code,
-    name: d.name,
-    countryCode: d.countryCode,
-    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
-  }));
+  return destinations.map(d => {
+    const name = getDestinationName(d);
+    return {
+      code: d.code,
+      name: name,
+      countryCode: d.countryCode,
+      displayName: d.countryCode ? `${name}, ${d.countryCode}` : name
+    };
+  });
 }
 
 // ============================================================================
