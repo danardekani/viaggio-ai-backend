@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { searchTours, searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
+import { searchHotels } from '../../services/affiliates/hotelbeds.js';
 import { identifyLocation } from '../../services/vision.js';
 
 // Simple logger (console-based)
@@ -158,33 +159,103 @@ async function executeSearchFlights(input) {
 }
 
 // ==========================================================================
-// SEARCH HOTELS - Placeholder for future Booking.com integration
+// SEARCH HOTELS - NOW CONNECTED TO HOTELBEDS API!
 // ==========================================================================
 
 async function executeSearchHotels(input) {
-  const { destination, check_in, check_out, guests = 2, rooms = 1, max_price_per_night } = input;
+  const { 
+    destination, 
+    check_in, 
+    check_out, 
+    guests = 2, 
+    rooms = 1, 
+    max_price_per_night 
+  } = input;
 
-  logger.info(`Hotel search requested: ${destination}`, { check_in, check_out, guests });
+  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests, rooms });
 
-  // Return a helpful placeholder response
-  return {
-    success: false,
-    available: false,
-    message: 'Hotel search is coming soon to Viaggio!',
-    searchedFor: {
+  try {
+    // Call the HotelBeds API
+    const hotels = await searchHotels({
       destination,
-      check_in,
-      check_out,
-      guests,
+      checkIn: check_in,
+      checkOut: check_out,
+      adults: guests,
+      children: 0,
       rooms,
-      max_price_per_night
-    },
-    suggestion: `For now, I recommend checking Booking.com or Hotels.com for accommodations in ${destination}. I can still help you find amazing tours and experiences for your trip!`,
-    workaround: {
-      booking: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
-      hotels: `https://www.hotels.com/search.do?q-destination=${encodeURIComponent(destination)}`
+      currency: 'USD',
+      resultCount: 10
+    });
+
+    // Filter by price if specified
+    let filteredHotels = hotels;
+    if (max_price_per_night) {
+      filteredHotels = hotels.filter(h => {
+        const pricePerNight = parseFloat(h.pricePerNight);
+        return pricePerNight <= max_price_per_night;
+      });
     }
-  };
+
+    if (!filteredHotels || filteredHotels.length === 0) {
+      return {
+        success: true,
+        hotels: [],
+        message: `No hotels found in ${destination} for those dates matching your criteria.`,
+        suggestion: 'Try different dates or adjusting your budget.',
+        searchedFor: {
+          destination,
+          check_in,
+          check_out,
+          guests,
+          rooms
+        }
+      };
+    }
+
+    logger.info(`Found ${filteredHotels.length} hotels in ${destination}`);
+
+    return {
+      success: true,
+      destination,
+      hotelCount: filteredHotels.length,
+      hotels: filteredHotels,
+      searchedFor: {
+        destination,
+        check_in,
+        check_out,
+        guests,
+        rooms
+      }
+    };
+
+  } catch (error) {
+    logger.error('Hotel search failed:', error.message);
+    
+    // If it's a destination not found error, be helpful
+    if (error.message.includes('Destination not found')) {
+      return {
+        error: true,
+        message: `I couldn't find "${destination}" in our hotel database. Could you try a different city name? For example, try "New York" instead of "NYC".`,
+        suggestion: 'Try using the full city name, like "New York", "London", or "Paris".',
+        searchedFor: {
+          destination,
+          check_in,
+          check_out
+        }
+      };
+    }
+
+    return {
+      error: true,
+      message: `Unable to search hotels: ${error.message}`,
+      suggestion: 'Please try again or try a different destination.',
+      searchedFor: {
+        destination,
+        check_in,
+        check_out
+      }
+    };
+  }
 }
 
 // ==========================================================================
