@@ -73,20 +73,20 @@ function getHeaders() {
  * Fetch all available destinations from HotelBeds Content API
  * Results are cached for 30 days
  */
-export async function fetchDestinations() {
-  // Check cache
+async function fetchDestinations() {
+  // Check cache first
   if (destinationsCache && destinationsCacheTime && 
       (Date.now() - destinationsCacheTime) < DESTINATIONS_CACHE_TTL) {
-    const hoursAgo = Math.round((Date.now() - destinationsCacheTime) / (60 * 60 * 1000));
-    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${hoursAgo}h ago)`);
+    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${Math.round((Date.now() - destinationsCacheTime) / 3600000)}h ago)`);
     return destinationsCache;
   }
 
   logger.info('Fetching destinations from HotelBeds Content API...');
 
   try {
+    // Fetch up to 1000 destinations to include major cities like New York
     const response = await fetch(
-      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG`,
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1&to=1000`,
       {
         method: 'GET',
         headers: getHeaders()
