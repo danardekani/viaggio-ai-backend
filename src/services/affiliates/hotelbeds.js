@@ -124,7 +124,6 @@ function getDestinationName(destination) {
   }
   return '';
 }
-
 /**
  * Find destination by name (fuzzy matching)
  */
@@ -132,11 +131,17 @@ async function findDestination(destinationName) {
   const destinations = await fetchDestinations();
   const searchLower = destinationName.toLowerCase().trim();
   
+   // DEBUG: Log first 3 destinations to see the data structure
+  logger.info(`DEBUG: First 3 destinations: ${JSON.stringify(destinations.slice(0, 3))}`);
+  
   // Try exact match first
   let match = destinations.find(d => {
     const name = getDestinationName(d);
     return name.toLowerCase() === searchLower;
   });
+
+   // Log what we're searching for and if we found it
+  logger.info(`DEBUG: Searching for "${searchLower}", found match: ${match ? 'yes' : 'no'}`);
   
   // Try partial match
   if (!match) {
