@@ -84,9 +84,9 @@ async function fetchDestinations() {
   logger.info('Fetching destinations from HotelBeds Content API...');
 
   try {
-    // Fetch up to 1000 destinations to include major cities like New York
+    // Fetch up to 3000 destinations to include major cities like New York
     const response = await fetch(
-      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1&to=1000`,
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1&to=3000`,
       {
         method: 'GET',
         headers: getHeaders()
