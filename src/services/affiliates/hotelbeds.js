@@ -77,33 +77,58 @@ async function fetchDestinations() {
   // Check cache first
   if (destinationsCache && destinationsCacheTime && 
       (Date.now() - destinationsCacheTime) < DESTINATIONS_CACHE_TTL) {
-    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${Math.round((Date.now() - destinationsCacheTime) / 3600000)}h ago)`);
+    logger.info(`Using cached destinations (${destinationsCache.length} destinations)`);
     return destinationsCache;
   }
 
   logger.info('Fetching destinations from HotelBeds Content API...');
 
   try {
-    // Fetch up to 3000 destinations to include major cities like New York
-    const response = await fetch(
-      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1&to=3000`,
-      {
-        method: 'GET',
-        headers: getHeaders()
-      }
+    // Fetch destinations in batches to get all major regions
+    const allDestinations = [];
+    
+    // Batch 1: General destinations (1-1000)
+    const response1 = await fetch(
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1&to=1000`,
+      { method: 'GET', headers: getHeaders() }
     );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(`HotelBeds Content API Error: ${response.status} - ${errorText}`);
-      throw new Error(`HotelBeds Content API error: ${response.status}`);
+    if (response1.ok) {
+      const data1 = await response1.json();
+      allDestinations.push(...(data1.destinations || []));
     }
 
-    const data = await response.json();
-    destinationsCache = data.destinations || [];
+    // Batch 2: More destinations (1001-2000)
+    const response2 = await fetch(
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=1001&to=2000`,
+      { method: 'GET', headers: getHeaders() }
+    );
+    if (response2.ok) {
+      const data2 = await response2.json();
+      allDestinations.push(...(data2.destinations || []));
+    }
+
+    // Batch 3: More destinations (2001-3000) - likely includes NYC
+    const response3 = await fetch(
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG&from=2001&to=3000`,
+      { method: 'GET', headers: getHeaders() }
+    );
+    if (response3.ok) {
+      const data3 = await response3.json();
+      allDestinations.push(...(data3.destinations || []));
+    }
+
+    destinationsCache = allDestinations;
     destinationsCacheTime = Date.now();
 
     logger.info(`Cached ${destinationsCache.length} destinations`);
+    
+    // Debug: Check if New York is in there
+    const nyCheck = allDestinations.find(d => {
+      const name = getDestinationName(d);
+      return name.toLowerCase().includes('new york');
+    });
+    logger.info(`New York found in cache: ${nyCheck ? 'YES - ' + nyCheck.code : 'NO'}`);
+
     return destinationsCache;
 
   } catch (error) {
