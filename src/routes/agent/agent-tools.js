@@ -7,7 +7,7 @@
 
 export const agentTools = [
   // ==========================================================================
-  // TOUR SEARCH TOOL (Active - uses Viator API)
+  // TOUR SEARCH TOOL (Active - uses Viator API) //
   // ==========================================================================
   {
     name: 'search_tours',
