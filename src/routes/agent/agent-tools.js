@@ -1,18 +1,26 @@
 // ============================================================================
-// AGENT TOOLS - GEMINI FORMAT
+// AGENT TOOLS - Tool Definitions for Agentic AI
 // ============================================================================
-// Tool definitions for Google Gemini 2.0 Flash.
-// These use Gemini's function declaration format.
+// These definitions tell Claude what tools it can use and how to use them.
+// Claude will autonomously decide when to call these based on user requests.
 // ============================================================================
 
-export const geminiTools = [
+export const agentTools = [
   // ==========================================================================
-  // TOUR SEARCH TOOL
+  // TOUR SEARCH TOOL (Active - uses Viator API)
   // ==========================================================================
   {
     name: 'search_tours',
-    description: `Search for tours, activities, and experiences in a destination using the Viator API. Use this tool when the user wants to find things to do in a city, look for specific activities (food tours, walking tours, museums, etc.), browse experiences for a trip, or find tours within a budget or date range. The tool returns real, bookable tours with prices, ratings, and availability.`,
-    parameters: {
+    description: `Search for tours, activities, and experiences in a destination using the Viator API.
+    
+Use this tool when the user wants to:
+- Find things to do in a city
+- Look for specific activities (food tours, walking tours, museums, etc.)
+- Browse experiences for a trip
+- Find tours within a budget or date range
+
+The tool returns real, bookable tours with prices, ratings, and availability.`,
+    input_schema: {
       type: 'object',
       properties: {
         destination: {
@@ -50,12 +58,20 @@ export const geminiTools = [
   },
 
   // ==========================================================================
-  // FLIGHT SEARCH TOOL
+  // FLIGHT SEARCH TOOL (Placeholder - for future Amadeus/Duffel integration)
   // ==========================================================================
   {
     name: 'search_flights',
-    description: `Search for flights between two cities. Use this tool when the user wants to find flights to a destination, compare flight prices, look for flights on specific dates, or check flight options for a trip. NOTE: This tool is not yet connected to a live API. It will return a message indicating flights are coming soon.`,
-    parameters: {
+    description: `Search for flights between two cities.
+    
+Use this tool when the user wants to:
+- Find flights to a destination
+- Compare flight prices
+- Look for flights on specific dates
+- Check flight options for a trip
+
+NOTE: This tool is not yet connected to a live API. It will return a message indicating flights are coming soon.`,
+    input_schema: {
       type: 'object',
       properties: {
         origin: {
@@ -89,41 +105,53 @@ export const geminiTools = [
   },
 
   // ==========================================================================
-  // HOTEL SEARCH TOOL
+  // HOTEL SEARCH TOOL - NOW ACTIVE! (Connected to HotelBeds API)
   // ==========================================================================
   {
     name: 'search_hotels',
-    description: `Search for hotels and accommodations in a destination. Use this tool when the user wants to find hotels in a city, look for accommodations for specific dates, compare hotel prices, or find hotels within a budget. NOTE: This tool is not yet connected to a live API. It will return a message indicating hotels are coming soon.`,
-    parameters: {
+    description: `Search for hotels and accommodations in a destination using the HotelBeds API.
+    
+Use this tool when the user wants to:
+- Find hotels in a city
+- Look for accommodations for specific dates
+- Compare hotel prices and options
+- Find hotels within a budget
+- Get hotel recommendations
+
+The tool returns real, bookable hotels with prices, star ratings, amenities, and availability. 
+Hotels are sourced from HotelBeds' inventory of 180K+ properties worldwide.
+
+IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
+    input_schema: {
       type: 'object',
       properties: {
         destination: {
           type: 'string',
-          description: 'City or area name (e.g., "Rome", "Paris", "Manhattan")'
+          description: 'Full city name (e.g., "New York", "London", "Paris", "Rome") - use complete names, not abbreviations'
         },
         check_in: {
           type: 'string',
-          description: 'Check-in date in YYYY-MM-DD format'
+          description: 'Check-in date in YYYY-MM-DD format (must be today or future date)'
         },
         check_out: {
           type: 'string',
-          description: 'Check-out date in YYYY-MM-DD format'
+          description: 'Check-out date in YYYY-MM-DD format (must be after check-in)'
         },
         guests: {
           type: 'number',
-          description: 'Number of guests (default: 2)'
+          description: 'Total number of guests/adults (default: 2)'
         },
         rooms: {
           type: 'number',
-          description: 'Number of rooms (default: 1)'
+          description: 'Number of rooms needed (default: 1)'
         },
         max_price_per_night: {
           type: 'number',
-          description: 'Maximum price per night in USD (optional)'
+          description: 'Maximum price per night in USD (optional filter)'
         },
         star_rating: {
           type: 'number',
-          description: 'Minimum star rating 1-5 (optional)'
+          description: 'Minimum star rating 1-5 (optional, not currently implemented)'
         }
       },
       required: ['destination', 'check_in', 'check_out']
@@ -131,12 +159,20 @@ export const geminiTools = [
   },
 
   // ==========================================================================
-  // DESTINATION INFO TOOL
+  // DESTINATION INFO TOOL (Uses Claude's knowledge)
   // ==========================================================================
   {
     name: 'get_destination_info',
-    description: `Get information about a travel destination including best time to visit, local tips, neighborhoods, and travel advice. Use this tool when the user wants to learn about a destination before booking, get recommendations for areas to stay, understand the best time to visit, or get local tips and cultural information. This tool uses AI knowledge to provide helpful destination information.`,
-    parameters: {
+    description: `Get information about a travel destination including best time to visit, local tips, neighborhoods, and travel advice.
+    
+Use this tool when the user wants to:
+- Learn about a destination before booking
+- Get recommendations for areas to stay
+- Understand the best time to visit
+- Get local tips and cultural information
+
+This tool uses AI knowledge to provide helpful destination information.`,
+    input_schema: {
       type: 'object',
       properties: {
         destination: {
@@ -154,12 +190,19 @@ export const geminiTools = [
   },
 
   // ==========================================================================
-  // IDENTIFY LOCATION TOOL
+  // IDENTIFY LOCATION TOOL (Uses Google Vision + Claude)
   // ==========================================================================
   {
     name: 'identify_location',
-    description: `Identify a travel destination from an image. This is used with the "Where Is This?" feature. Use this tool when the user uploads an image and asks where it is, wants to identify a landmark or destination from a photo, or shares a travel photo and wants to visit that place. The tool uses Google Cloud Vision for landmark detection and AI analysis for scene recognition.`,
-    parameters: {
+    description: `Identify a travel destination from an image. This is used with the "Where Is This?" feature.
+    
+Use this tool when the user:
+- Uploads an image and asks where it is
+- Wants to identify a landmark or destination from a photo
+- Shares a travel photo and wants to visit that place
+
+The tool uses Google Cloud Vision for landmark detection and AI analysis for scene recognition.`,
+    input_schema: {
       type: 'object',
       properties: {
         image_base64: {
@@ -183,35 +226,45 @@ export const geminiTools = [
 export const travelAgentSystemPrompt = `You are Via, the travel expert for Viaggio.ai. Friendly, knowledgeable, and concise.
 
 TOOLS:
-- search_tours: Find activities (WORKING - returns real Viator tours)
-- search_flights/search_hotels: COMING SOON (mention this if asked)
+- search_tours: Find activities (ACTIVE - Viator API)
+- search_hotels: Find accommodations (ACTIVE - HotelBeds API) 
+- search_flights: COMING SOON (mention this if asked)
 - get_destination_info: Destination tips
 - identify_location: ID places from photos
 
 RESPONSE STYLE:
 - Keep responses under 100 words when possible
 - Be warm but brief - no lengthy paragraphs
-- Tour results appear as cards automatically - don't list them all
-- After searching tours, count the actual tours returned and mention that exact number
-- Give 1-2 specific tour highlights, then ask a follow-up question
+- Tour/hotel results appear as cards automatically - don't list them all
+- After searching, count the actual results returned and mention that exact number
+- Give 1-2 specific highlights, then ask a follow-up question
 
-EXAMPLE GOOD RESPONSE (after finding tours):
+EXAMPLE GOOD RESPONSES:
+
+After finding tours:
 "Found 8 great tours in Rome! 🎉 Prices range from $31-$105. The Vatican skip-the-line tour is super popular, and the Colosseum arena floor access is a unique experience. What interests you more - history, food, or art?"
 
-IMPORTANT: Count the tours in the API response accurately - if 7 tours were returned, say "Found 7 tours", not "Found 5 tours".
+After finding hotels:
+"Found 12 hotels in New York! 🏨 Prices range from $150-$450/night. The Times Square Marriott has great reviews (4.5 stars), and The Pod Hotel offers an affordable option. What's your budget?"
+
+IMPORTANT: 
+- Count results accurately - if 7 items were returned, say "Found 7", not "Found 5"
+- For hotels, ALWAYS use full city names: "New York" not "NYC", "London" not "LON"
 
 DON'T:
 - Write long paragraphs
-- List every tour with details (cards do that)
+- List every result with details (cards do that)
 - Over-explain
 - Use bullet points
-- Guess at tour counts - count them accurately
+- Guess at counts - count them accurately
+- Use city abbreviations for hotel searches
 
 DO:
 - Be conversational and warm
 - Count actual results accurately
 - Give 1-2 specific recommendations
 - Ask ONE follow-up question
-- Mention price ranges briefly`;
+- Mention price ranges briefly
+- Use full city names for hotel searches`;
 
-export default { geminiTools, travelAgentSystemPrompt };
+export default { agentTools, travelAgentSystemPrompt };
