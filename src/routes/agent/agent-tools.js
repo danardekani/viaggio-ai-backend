@@ -114,12 +114,10 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
 Use this tool when the user wants to:
 - Find hotels in a city
 - Look for accommodations for specific dates
-- Compare hotel prices and options
+- Compare hotel prices
 - Find hotels within a budget
-- Get hotel recommendations
 
-The tool returns real, bookable hotels with prices, star ratings, amenities, and availability. 
-Hotels are sourced from HotelBeds' inventory of 180K+ properties worldwide.
+The tool returns real hotels with prices, ratings, and availability.`,
 
 IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
     input_schema: {
