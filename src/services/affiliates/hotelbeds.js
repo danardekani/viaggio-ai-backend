@@ -161,7 +161,7 @@ async function getHotelsByDestination(destinationCode, limit = 100) {
 
   try {
     const response = await fetch(
-      `${CONTENT_API_BASE}/hotels?fields=all&destinationCodes=${destinationCode}&language=en&from=1&to=${limit}`,
+      `${CONTENT_API_BASE}/hotels?fields=all&destinationCodes=${destinationCode}&language=ENG&from=1&to=${limit}`,
       {
         method: 'GET',
         headers: getHeaders()
