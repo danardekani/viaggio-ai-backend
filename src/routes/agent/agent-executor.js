@@ -64,6 +64,7 @@ async function executeSearchTours(input) {
   const {
     destination,
     interests = [],
+    sort_by = 'popular',  // NEW: Added sort_by parameter
     start_date,
     end_date,
     max_price,
@@ -71,11 +72,10 @@ async function executeSearchTours(input) {
     result_count = 5
   } = input;
 
-  logger.info(`Searching tours in ${destination}`, { interests, start_date, end_date });
+  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date });
 
   try {
     // Step 1: Use Viator's autocomplete to find the best matching destination
-    // This lets Viator's API intelligently match "Napa Valley" -> "Napa & Sonoma"
     let searchDestination = destination;
     
     try {
@@ -93,6 +93,7 @@ async function executeSearchTours(input) {
     const tours = await searchTours({
       destination: searchDestination,
       searchTerms: interests.join(' '),
+      sortBy: sort_by,  // NEW: Pass sort_by to Viator service
       startDate: start_date,
       endDate: end_date,
       maxPrice: max_price,
@@ -110,13 +111,14 @@ async function executeSearchTours(input) {
     }
 
     // Tours are already formatted by viator.js - just pass them through
-    logger.info(`Found ${tours.length} tours in ${searchDestination}`);
+    logger.info(`Found ${tours.length} tours in ${searchDestination} (sorted by: ${sort_by})`);
 
     return {
       success: true,
       destination: searchDestination,
       tourCount: tours.length,
-      tours: tours
+      tours: tours,
+      sortedBy: sort_by
     };
 
   } catch (error) {
@@ -159,46 +161,101 @@ async function executeSearchFlights(input) {
 }
 
 // ==========================================================================
-// SEARCH HOTELS - NOW CONNECTED TO HOTELBEDS API!
+// SEARCH HOTELS - Connected to HotelBeds API
 // ==========================================================================
 
 async function executeSearchHotels(input) {
-  const { destination, check_in, check_out, guests = 2, rooms = 1, max_price_per_night } = input;
+  const { 
+    destination, 
+    check_in, 
+    check_out, 
+    guests = 2, 
+    rooms = 1, 
+    max_price_per_night 
+  } = input;
 
-  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests });
+  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests, rooms });
 
   try {
+    // Call the HotelBeds API
     const hotels = await searchHotels({
       destination,
       checkIn: check_in,
       checkOut: check_out,
       adults: guests,
+      children: 0,
       rooms,
+      currency: 'USD',
       resultCount: 10
     });
 
-    if (!hotels || hotels.length === 0) {
+    // Filter by price if specified
+    let filteredHotels = hotels;
+    if (max_price_per_night) {
+      filteredHotels = hotels.filter(h => {
+        const pricePerNight = parseFloat(h.pricePerNight);
+        return pricePerNight <= max_price_per_night;
+      });
+    }
+
+    if (!filteredHotels || filteredHotels.length === 0) {
       return {
         success: true,
         hotels: [],
-        message: `No hotels found in ${destination} for those dates.`,
-        suggestion: 'Try different dates or a nearby destination.'
+        message: `No hotels found in ${destination} for those dates matching your criteria.`,
+        suggestion: 'Try different dates or adjusting your budget.',
+        searchedFor: {
+          destination,
+          check_in,
+          check_out,
+          guests,
+          rooms
+        }
       };
     }
+
+    logger.info(`Found ${filteredHotels.length} hotels in ${destination}`);
 
     return {
       success: true,
       destination,
-      hotelCount: hotels.length,
-      hotels
+      hotelCount: filteredHotels.length,
+      hotels: filteredHotels,
+      searchedFor: {
+        destination,
+        check_in,
+        check_out,
+        guests,
+        rooms
+      }
     };
 
   } catch (error) {
     logger.error('Hotel search failed:', error.message);
+    
+    // If it's a destination not found error, be helpful
+    if (error.message.includes('Destination not found')) {
+      return {
+        error: true,
+        message: `I couldn't find "${destination}" in our hotel database. Could you try a different city name? For example, try "New York" instead of "NYC".`,
+        suggestion: 'Try using the full city name, like "New York", "London", or "Paris".',
+        searchedFor: {
+          destination,
+          check_in,
+          check_out
+        }
+      };
+    }
+
     return {
       error: true,
       message: `Unable to search hotels: ${error.message}`,
-      suggestion: 'Please try again or try a different destination.'
+      suggestion: 'Please try again or try a different destination.',
+      searchedFor: {
+        destination,
+        check_in,
+        check_out
+      }
     };
   }
 }
@@ -213,7 +270,6 @@ async function executeGetDestinationInfo(input) {
   logger.info(`Destination info requested: ${destination}`, { topics });
 
   // This tool returns a prompt for Claude to answer with its knowledge
-  // Rather than calling an external API, we let Claude use its training data
   return {
     success: true,
     type: 'knowledge_request',
@@ -267,7 +323,3 @@ async function executeIdentifyLocation(input) {
     };
   }
 }
-
-// ==========================================================================
-// EXPORTS - executeTool is exported inline above
-// ==========================================================================
