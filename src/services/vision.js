@@ -312,10 +312,10 @@ async function analyzeImageWithAI(imageBase64, mediaType = 'image/jpeg', visionC
   // Toggle which AI provider to use by commenting/uncommenting
   // --------------------------------------------------------------------------
   
-  // // GEMINI (currently active)
+  // // GEMINI (currently inactive)
   // return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
   
-  // CLAUDE (commented out)
+  // CLAUDE (currently active)
   return await analyzeImageWithClaude(imageBase64, mediaType, visionContext);
 }
 
