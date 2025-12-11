@@ -14,11 +14,41 @@ import { logger } from '../utils/logger.js';
 const router = express.Router();
 
 // ============================================================================
+// HELPER: Generate default dates
+// ============================================================================
+
+/**
+ * Generate smart default dates for hotel search
+ * - Check-in: 2 weeks from today (gives time to plan)
+ * - Check-out: 3 days later (typical short trip)
+ */
+function getDefaultDates() {
+  const today = new Date();
+  
+  // Check-in: 2 weeks from now
+  const checkIn = new Date(today);
+  checkIn.setDate(checkIn.getDate() + 14);
+  
+  // Check-out: 3 days after check-in
+  const checkOut = new Date(checkIn);
+  checkOut.setDate(checkOut.getDate() + 3);
+  
+  // Format as YYYY-MM-DD
+  const formatDate = (date) => date.toISOString().split('T')[0];
+  
+  return {
+    checkIn: formatDate(checkIn),
+    checkOut: formatDate(checkOut)
+  };
+}
+
+// ============================================================================
 // GET /api/hotels/destinations/autocomplete
 // ============================================================================
 
 /**
  * Autocomplete for destination search
+ * Uses Google Places API for suggestions
  * 
  * Query params:
  * - q: Search term (min 2 characters)
@@ -61,8 +91,8 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  * Request body:
  * {
  *   destination: "New York",         // Required - City name
- *   checkIn: "2025-07-15",          // Required - YYYY-MM-DD
- *   checkOut: "2025-07-22",         // Required - YYYY-MM-DD
+ *   checkIn: "2025-07-15",          // Optional - YYYY-MM-DD (defaults to 2 weeks from now)
+ *   checkOut: "2025-07-22",         // Optional - YYYY-MM-DD (defaults to 3 days after checkIn)
  *   adults: 2,                      // Optional - Number of adults (default: 2)
  *   children: 0,                    // Optional - Number of children (default: 0)
  *   rooms: 1,                       // Optional - Number of rooms (default: 1)
@@ -72,7 +102,7 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  */
 router.post('/search', async (req, res, next) => {
   try {
-    const { 
+    let { 
       destination, 
       checkIn,
       checkOut,
@@ -83,17 +113,21 @@ router.post('/search', async (req, res, next) => {
       resultCount = 20
     } = req.body;
 
-    // Validate required fields
+    // Validate destination is required
     if (!destination) {
       return res.status(400).json({ 
         error: 'Missing required field: destination'
       });
     }
 
+    // If dates not provided, use smart defaults
+    let usingDefaultDates = false;
     if (!checkIn || !checkOut) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: checkIn and checkOut dates are required'
-      });
+      const defaults = getDefaultDates();
+      checkIn = checkIn || defaults.checkIn;
+      checkOut = checkOut || defaults.checkOut;
+      usingDefaultDates = true;
+      logger.info(`Using default dates: ${checkIn} to ${checkOut}`);
     }
 
     // Validate date format (YYYY-MM-DD)
@@ -147,7 +181,8 @@ router.post('/search', async (req, res, next) => {
         children: parseInt(children),
         rooms: parseInt(rooms),
         currency,
-        resultCount
+        resultCount,
+        usingDefaultDates
       },
       count: hotels.length
     });
@@ -156,10 +191,17 @@ router.post('/search', async (req, res, next) => {
     logger.error('Hotel search error:', error);
     
     // Send user-friendly error messages
-    if (error.message.includes('Destination not found')) {
+    if (error.message.includes('Could not find location')) {
       return res.status(404).json({ 
         error: 'Destination not found',
         message: 'We could not find hotels in the specified destination. Please try a different city or check the spelling.'
+      });
+    }
+
+    if (error.message.includes('Geocoding')) {
+      return res.status(500).json({ 
+        error: 'Location service error',
+        message: 'Unable to locate the destination. Please try again.'
       });
     }
 
@@ -167,6 +209,67 @@ router.post('/search', async (req, res, next) => {
       return res.status(500).json({ 
         error: 'API authentication error',
         message: 'There was an issue with the hotel search service. Please try again later.'
+      });
+    }
+    
+    next(error);
+  }
+});
+
+// ============================================================================
+// GET /api/hotels/browse/:destination
+// ============================================================================
+
+/**
+ * Quick browse hotels in a destination without specifying dates
+ * Uses default dates automatically
+ * 
+ * URL params:
+ * - destination: City name (URL encoded)
+ * 
+ * Query params:
+ * - adults: Number of adults (default: 2)
+ * - limit: Number of results (default: 10)
+ */
+router.get('/browse/:destination', async (req, res, next) => {
+  try {
+    const { destination } = req.params;
+    const { adults = 2, limit = 10 } = req.query;
+
+    if (!destination) {
+      return res.status(400).json({ error: 'Destination is required' });
+    }
+
+    const { checkIn, checkOut } = getDefaultDates();
+
+    logger.info(`Hotel browse: ${destination} (using default dates ${checkIn} to ${checkOut})`);
+
+    const hotels = await searchHotels({
+      destination: decodeURIComponent(destination),
+      checkIn,
+      checkOut,
+      adults: parseInt(adults),
+      children: 0,
+      rooms: 1,
+      currency: 'USD',
+      resultCount: Math.min(parseInt(limit) || 10, 20)
+    });
+
+    res.json({ 
+      hotels,
+      destination: decodeURIComponent(destination),
+      defaultDates: { checkIn, checkOut },
+      message: `Showing hotels for ${checkIn} to ${checkOut}. Adjust dates for accurate pricing.`,
+      count: hotels.length
+    });
+
+  } catch (error) {
+    logger.error('Hotel browse error:', error);
+    
+    if (error.message.includes('Could not find location')) {
+      return res.status(404).json({ 
+        error: 'Destination not found',
+        message: 'We could not find that destination. Please check the spelling.'
       });
     }
     
@@ -185,24 +288,24 @@ router.post('/search', async (req, res, next) => {
  * - hotelCode: The HotelBeds hotel code
  * 
  * Query Parameters:
- * - checkIn: Check-in date (YYYY-MM-DD) - Required
- * - checkOut: Check-out date (YYYY-MM-DD) - Required
+ * - checkIn: Check-in date (YYYY-MM-DD) - Optional (uses defaults)
+ * - checkOut: Check-out date (YYYY-MM-DD) - Optional (uses defaults)
  * - adults: Number of adults (default: 2)
  */
 router.get('/:hotelCode', async (req, res, next) => {
   try {
     const { hotelCode } = req.params;
-    const { checkIn, checkOut, adults = 2 } = req.query;
+    let { checkIn, checkOut, adults = 2 } = req.query;
 
     if (!hotelCode) {
       return res.status(400).json({ error: 'Hotel code is required' });
     }
 
+    // Use default dates if not provided
     if (!checkIn || !checkOut) {
-      return res.status(400).json({ 
-        error: 'Check-in and check-out dates are required as query parameters',
-        example: `/api/hotels/${hotelCode}?checkIn=2025-12-20&checkOut=2025-12-27`
-      });
+      const defaults = getDefaultDates();
+      checkIn = checkIn || defaults.checkIn;
+      checkOut = checkOut || defaults.checkOut;
     }
 
     logger.info(`Fetching hotel details: ${hotelCode}, ${checkIn} to ${checkOut}`);
@@ -230,7 +333,7 @@ router.get('/:hotelCode', async (req, res, next) => {
 // ============================================================================
 
 /**
- * Get list of all available destinations
+ * Get list of popular destinations
  * Useful for populating dropdown menus or showing popular destinations
  */
 router.get('/destinations/list', async (req, res, next) => {
