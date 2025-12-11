@@ -1,9 +1,9 @@
 // ============================================================================
-// VISION SERVICE - Google Cloud Vision + AI Fallback
+// VISION SERVICE - Google Cloud Vision + AI Enhancement
 // ============================================================================
 // Identifies locations from images using:
 // 1. Google Cloud Vision API (landmark detection)
-// 2. AI fallback (Gemini or Claude - toggle below)
+// 2. AI enhancement (always used to add city/country context and descriptions)
 // ============================================================================
 
 // ==========================================================================
@@ -11,14 +11,14 @@
 // ==========================================================================
 
 // --------------------------------------------------------------------------
-// OPTION A: GEMINI (currently active)
+// OPTION A: GEMINI (commented out)
 // --------------------------------------------------------------------------
 // import { GoogleGenerativeAI } from '@google/generative-ai';
 // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // const AI_PROVIDER = 'gemini';
 
 // --------------------------------------------------------------------------
-// OPTION B: CLAUDE (commented out)
+// OPTION B: CLAUDE (currently active)
 // --------------------------------------------------------------------------
 import Anthropic from '@anthropic-ai/sdk';
 const anthropic = new Anthropic({
@@ -124,104 +124,15 @@ export async function detectLandmarks(imageBase64) {
 }
 
 // ============================================================================
-// GEMINI - AI IMAGE ANALYSIS (commented out)
+// CLAUDE - AI IMAGE ANALYSIS WITH RICH CONTEXT (currently active)
 // ============================================================================
 
 /**
- * Use Gemini to analyze an image and identify the location
+ * Use Claude to analyze an image and identify the location with rich context
  * @param {string} imageBase64 - Base64 encoded image
  * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
- * @param {Object} visionContext - Context from Google Vision (labels, text)
- * @returns {Promise<Object>} - Identified location information
- */
-// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-//   try {
-//     logger.info('Analyzing image with Gemini for location identification...');
-
-//     // Initialize Gemini model
-//     const model = genAI.getGenerativeModel({
-//       model: 'gemini-2.5-pro',
-//       generationConfig: {
-//         temperature: 0.3,  // Lower temperature for more factual responses
-//         maxOutputTokens: 500,
-//       }
-//     });
-
-//     // Build context from Vision API results
-//     let contextHints = '';
-//     if (visionContext.labels?.length > 0) {
-//       contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
-//     }
-//     if (visionContext.detectedText) {
-//       contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
-//     }
-
-//     const prompt = `Identify this travel location. ${contextHints}
-
-// Reply with ONLY this JSON (no markdown, no code blocks):
-// {"identified":true,"confidence":"high","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}
-
-// If you cannot identify the location, respond with:
-// {"identified":false,"confidence":"low","destination":null,"landmark":null,"reasoning":"Why it couldn't be identified"}`;
-
-//     // Create the image part for Gemini
-//     const imagePart = {
-//       inlineData: {
-//         data: imageBase64,
-//         mimeType: mediaType
-//       }
-//     };
-
-//     // Generate content with image
-//     const result = await model.generateContent([prompt, imagePart]);
-//     const response = result.response;
-//     const responseText = response.text().trim();
-
-//     // Parse the JSON response
-//     try {
-//       // Remove markdown code blocks if present
-//       let jsonText = responseText;
-//       if (jsonText.startsWith('```')) {
-//         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
-//       }
-
-//       const analysis = JSON.parse(jsonText);
-//       logger.info(`Gemini identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
-
-//       return {
-//         success: true,
-//         ...analysis
-//       };
-//     } catch (parseError) {
-//       logger.error('Failed to parse Gemini response as JSON:', responseText);
-//       return {
-//         success: false,
-//         identified: false,
-//         reasoning: 'Failed to parse AI response',
-//         rawResponse: responseText
-//       };
-//     }
-
-//   } catch (error) {
-//     logger.error('Gemini image analysis error:', error);
-//     return {
-//       success: false,
-//       identified: false,
-//       error: error.message
-//     };
-//   }
-// }
-
-// ============================================================================
-// CLAUDE - AI IMAGE ANALYSIS
-// ============================================================================
-
-/**
- * Use Claude to analyze an image and identify the location
- * @param {string} imageBase64 - Base64 encoded image
- * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
- * @param {Object} visionContext - Context from Google Vision (labels, text)
- * @returns {Promise<Object>} - Identified location information
+ * @param {Object} visionContext - Context from Google Vision (landmarks, labels, text)
+ * @returns {Promise<Object>} - Identified location information with description
  */
 async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
   try {
@@ -229,16 +140,20 @@ async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', vis
 
     // Build context from Vision API results
     let contextHints = '';
+    if (visionContext.landmarks?.length > 0) {
+      const landmarkNames = visionContext.landmarks.map(l => l.name).join(', ');
+      contextHints += `Google Vision detected these landmarks: ${landmarkNames}. `;
+    }
     if (visionContext.labels?.length > 0) {
-      contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+      contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
     }
     if (visionContext.detectedText) {
-      contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
+      contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
     }
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 300,  // Reduced for faster response
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 800,
       messages: [
         {
           role: 'user',
@@ -253,10 +168,29 @@ async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', vis
             },
             {
               type: 'text',
-              text: `Identify this travel location. ${contextHints}
+              text: `Identify this travel destination and provide rich context for travelers.
+${contextHints}
 
-Reply with ONLY this JSON:
-{"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
+You MUST respond with ONLY valid JSON (no markdown, no code blocks, no extra text):
+{
+  "identified": true,
+  "confidence": "high",
+  "destination": {
+    "name": "City Name",
+    "country": "Country Name",
+    "fullName": "City Name, Country Name"
+  },
+  "landmark": "Specific landmark name if visible, or null",
+  "description": "A 2-3 sentence description of this location that would be helpful for a traveler. Include what makes this place special, interesting history, or travel tips.",
+  "reasoning": "Brief explanation of how you identified this location"
+}
+
+IMPORTANT:
+- "destination" must ALWAYS include the CITY and COUNTRY, not just the landmark name
+- For example, if you see the Colosseum, destination.name should be "Rome", not "Colosseum"
+- The "landmark" field is for the specific landmark (e.g., "Colosseum")
+- The "description" should be engaging travel-focused content about this specific place
+- If you cannot identify the location, set "identified" to false and explain in "reasoning"`
             }
           ]
         }
@@ -301,6 +235,97 @@ Reply with ONLY this JSON:
 }
 
 // ============================================================================
+// GEMINI - AI IMAGE ANALYSIS WITH RICH CONTEXT (commented out)
+// ============================================================================
+
+// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+//   try {
+//     logger.info('Analyzing image with Gemini for location identification...');
+//
+//     const model = genAI.getGenerativeModel({
+//       model: 'gemini-2.0-flash',
+//       generationConfig: {
+//         temperature: 0.3,
+//         maxOutputTokens: 800,
+//       }
+//     });
+//
+//     let contextHints = '';
+//     if (visionContext.landmarks?.length > 0) {
+//       const landmarkNames = visionContext.landmarks.map(l => l.name).join(', ');
+//       contextHints += `Google Vision detected these landmarks: ${landmarkNames}. `;
+//     }
+//     if (visionContext.labels?.length > 0) {
+//       contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+//     }
+//     if (visionContext.detectedText) {
+//       contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
+//     }
+//
+//     const prompt = `Identify this travel destination and provide rich context for travelers.
+// ${contextHints}
+//
+// You MUST respond with ONLY valid JSON (no markdown, no code blocks, no extra text):
+// {
+//   "identified": true,
+//   "confidence": "high",
+//   "destination": {
+//     "name": "City Name",
+//     "country": "Country Name",
+//     "fullName": "City Name, Country Name"
+//   },
+//   "landmark": "Specific landmark name if visible, or null",
+//   "description": "A 2-3 sentence description helpful for travelers",
+//   "reasoning": "Brief explanation"
+// }
+//
+// IMPORTANT: destination must be the CITY, not the landmark. For Colosseum, destination.name = "Rome".`;
+//
+//     const imagePart = {
+//       inlineData: {
+//         data: imageBase64,
+//         mimeType: mediaType
+//       }
+//     };
+//
+//     const result = await model.generateContent([prompt, imagePart]);
+//     const response = result.response;
+//     const responseText = response.text().trim();
+//
+//     try {
+//       let jsonText = responseText;
+//       if (jsonText.startsWith('```')) {
+//         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
+//       }
+//
+//       const analysis = JSON.parse(jsonText);
+//       logger.info(`Gemini identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
+//
+//       return {
+//         success: true,
+//         ...analysis
+//       };
+//     } catch (parseError) {
+//       logger.error('Failed to parse Gemini response as JSON:', responseText);
+//       return {
+//         success: false,
+//         identified: false,
+//         reasoning: 'Failed to parse AI response',
+//         rawResponse: responseText
+//       };
+//     }
+//
+//   } catch (error) {
+//     logger.error('Gemini image analysis error:', error);
+//     return {
+//       success: false,
+//       identified: false,
+//       error: error.message
+//     };
+//   }
+// }
+
+// ============================================================================
 // AI ANALYSIS ROUTER - Routes to active provider
 // ============================================================================
 
@@ -308,15 +333,11 @@ Reply with ONLY this JSON:
  * Analyze image with the currently active AI provider
  */
 async function analyzeImageWithAI(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-  // --------------------------------------------------------------------------
-  // Toggle which AI provider to use by commenting/uncommenting
-  // --------------------------------------------------------------------------
-  
-  // // GEMINI (currently inactive)
-  // return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
-  
   // CLAUDE (currently active)
   return await analyzeImageWithClaude(imageBase64, mediaType, visionContext);
+  
+  // GEMINI (commented out)
+  // return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
 }
 
 // ============================================================================
@@ -324,7 +345,9 @@ async function analyzeImageWithAI(imageBase64, mediaType = 'image/jpeg', visionC
 // ============================================================================
 
 /**
- * Identify location from an image using Vision API + AI fallback
+ * Identify location from an image using Vision API + AI enhancement
+ * ALWAYS uses AI to get rich context (city, country, description)
+ * 
  * @param {string} imageBase64 - Base64 encoded image (without data URL prefix)
  * @param {string} mediaType - Image MIME type
  * @returns {Promise<Object>} - Complete identification result
@@ -339,76 +362,62 @@ export async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
     landmark: null,
     confidence: null,
     coordinates: null,
-    reasoning: null,
-    travelTips: null
+    description: null,
+    reasoning: null
   };
 
   // Step 1: Try Google Cloud Vision for landmark detection
   const visionResult = await detectLandmarks(imageBase64);
 
-  if (visionResult.landmarks?.length > 0) {
-    // Found a landmark!
-    const topLandmark = visionResult.landmarks[0];
-    const confidence = topLandmark.confidence > 0.8 ? 'high' : topLandmark.confidence > 0.5 ? 'medium' : 'low';
-
-    result.success = true;
-    result.source = 'google_vision';
-    result.landmark = topLandmark.name;
-    result.confidence = confidence;
-    result.coordinates = topLandmark.location;
-
-    // For HIGH confidence landmarks, skip AI for speed
-    if (confidence === 'high') {
-      result.destination = {
-        name: topLandmark.name,
-        fullName: topLandmark.name
-      };
-      result.reasoning = `Identified landmark: ${topLandmark.name}`;
-      logger.info(`Fast path: High confidence landmark "${topLandmark.name}"`);
-      return result;
-    }
-
-    // For medium/low confidence, use AI to get more context
-    const aiResult = await analyzeImageWithAI(imageBase64, mediaType, visionResult);
-
-    if (aiResult.success && aiResult.identified) {
-      result.destination = aiResult.destination;
-      result.reasoning = aiResult.reasoning;
-      result.travelTips = aiResult.travelTips;
-    } else {
-      // Fallback: use landmark name as destination
-      result.destination = {
-        name: topLandmark.name,
-        fullName: topLandmark.name
-      };
-      result.reasoning = `Identified landmark: ${topLandmark.name}`;
-    }
-
-    logger.info(`Location identified via Google Vision: ${result.landmark}`);
-    return result;
-  }
-
-  // Step 2: No landmark found, use AI as primary analyzer
-  logger.info(`No landmarks detected, falling back to ${AI_PROVIDER} analysis...`);
-
+  // Step 2: ALWAYS use AI to get rich context (city, country, description)
+  // Pass Vision results as context hints to help AI
+  logger.info(`Calling ${AI_PROVIDER} for rich context and description...`);
   const aiResult = await analyzeImageWithAI(imageBase64, mediaType, visionResult);
 
   if (aiResult.success && aiResult.identified) {
     result.success = true;
-    result.source = `${AI_PROVIDER}_ai`;
+    result.source = visionResult.landmarks?.length > 0 ? 'google_vision_enhanced' : `${AI_PROVIDER}_ai`;
     result.destination = aiResult.destination;
-    result.landmark = aiResult.landmark || null;
+    result.landmark = aiResult.landmark || (visionResult.landmarks?.[0]?.name || null);
     result.confidence = aiResult.confidence;
+    result.description = aiResult.description;
     result.reasoning = aiResult.reasoning;
-    result.travelTips = aiResult.travelTips;
 
-    logger.info(`Location identified via ${AI_PROVIDER}: ${result.destination?.fullName}`);
+    // Add coordinates from Google Vision if available
+    if (visionResult.landmarks?.[0]?.location) {
+      result.coordinates = visionResult.landmarks[0].location;
+    }
+
+    logger.info(`Location identified: ${result.destination?.fullName} (landmark: ${result.landmark})`);
     return result;
   }
 
-  // Step 3: Could not identify location
+  // Step 3: If AI failed but Google Vision found something, use that as fallback
+  if (visionResult.landmarks?.length > 0) {
+    const topLandmark = visionResult.landmarks[0];
+    
+    result.success = true;
+    result.source = 'google_vision_fallback';
+    result.landmark = topLandmark.name;
+    result.confidence = topLandmark.confidence > 0.8 ? 'high' : 'medium';
+    result.coordinates = topLandmark.location;
+    
+    // Try to provide a reasonable destination even without AI
+    // This is a fallback - ideally AI would have worked
+    result.destination = {
+      name: topLandmark.name,
+      fullName: topLandmark.name
+    };
+    result.reasoning = `Identified landmark: ${topLandmark.name}. For best results with hotels and tours, please try searching for the city name directly.`;
+    result.description = `This appears to be ${topLandmark.name}. Try searching for hotels and tours in the city where this landmark is located.`;
+
+    logger.warn(`AI enhancement failed, using Vision-only fallback for: ${topLandmark.name}`);
+    return result;
+  }
+
+  // Step 4: Could not identify location
   result.success = false;
-  result.reasoning = aiResult.reasoning || 'Could not identify the location in this image';
+  result.reasoning = aiResult.reasoning || 'Could not identify the location in this image. Try uploading a clearer photo of a recognizable landmark or destination.';
 
   logger.info('Could not identify location from image');
   return result;
