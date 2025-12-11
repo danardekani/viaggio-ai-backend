@@ -6,7 +6,7 @@
 // ============================================================================
 
 import crypto from 'crypto';
-import { logger } from '../utils/logger.js';
+import { logger } from '../../utils/logger.js';
 
 // API Configuration
 const API_KEY = process.env.HOTELBEDS_API_KEY;
