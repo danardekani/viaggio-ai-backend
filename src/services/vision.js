@@ -13,18 +13,18 @@
 // --------------------------------------------------------------------------
 // OPTION A: GEMINI (currently active)
 // --------------------------------------------------------------------------
-import { GoogleGenerativeAI } from '@google/generative-ai';
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const AI_PROVIDER = 'gemini';
+// import { GoogleGenerativeAI } from '@google/generative-ai';
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// const AI_PROVIDER = 'gemini';
 
 // --------------------------------------------------------------------------
 // OPTION B: CLAUDE (commented out)
 // --------------------------------------------------------------------------
-// import Anthropic from '@anthropic-ai/sdk';
-// const anthropic = new Anthropic({
-//   apiKey: process.env.ANTHROPIC_API_KEY
-// });
-// const AI_PROVIDER = 'claude';
+import Anthropic from '@anthropic-ai/sdk';
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
+const AI_PROVIDER = 'claude';
 
 // ==========================================================================
 
@@ -124,7 +124,7 @@ export async function detectLandmarks(imageBase64) {
 }
 
 // ============================================================================
-// GEMINI - AI IMAGE ANALYSIS
+// GEMINI - AI IMAGE ANALYSIS (commented out)
 // ============================================================================
 
 /**
@@ -134,48 +134,136 @@ export async function detectLandmarks(imageBase64) {
  * @param {Object} visionContext - Context from Google Vision (labels, text)
  * @returns {Promise<Object>} - Identified location information
  */
-async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-  try {
-    logger.info('Analyzing image with Gemini for location identification...');
+// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+//   try {
+//     logger.info('Analyzing image with Gemini for location identification...');
 
-    // Initialize Gemini model
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-pro',
-      generationConfig: {
-        temperature: 0.3,  // Lower temperature for more factual responses
-        maxOutputTokens: 500,
-      }
-    });
+//     // Initialize Gemini model
+//     const model = genAI.getGenerativeModel({
+//       model: 'gemini-2.5-pro',
+//       generationConfig: {
+//         temperature: 0.3,  // Lower temperature for more factual responses
+//         maxOutputTokens: 500,
+//       }
+//     });
+
+//     // Build context from Vision API results
+//     let contextHints = '';
+//     if (visionContext.labels?.length > 0) {
+//       contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+//     }
+//     if (visionContext.detectedText) {
+//       contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
+//     }
+
+//     const prompt = `Identify this travel location. ${contextHints}
+
+// Reply with ONLY this JSON (no markdown, no code blocks):
+// {"identified":true,"confidence":"high","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}
+
+// If you cannot identify the location, respond with:
+// {"identified":false,"confidence":"low","destination":null,"landmark":null,"reasoning":"Why it couldn't be identified"}`;
+
+//     // Create the image part for Gemini
+//     const imagePart = {
+//       inlineData: {
+//         data: imageBase64,
+//         mimeType: mediaType
+//       }
+//     };
+
+//     // Generate content with image
+//     const result = await model.generateContent([prompt, imagePart]);
+//     const response = result.response;
+//     const responseText = response.text().trim();
+
+//     // Parse the JSON response
+//     try {
+//       // Remove markdown code blocks if present
+//       let jsonText = responseText;
+//       if (jsonText.startsWith('```')) {
+//         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
+//       }
+
+//       const analysis = JSON.parse(jsonText);
+//       logger.info(`Gemini identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
+
+//       return {
+//         success: true,
+//         ...analysis
+//       };
+//     } catch (parseError) {
+//       logger.error('Failed to parse Gemini response as JSON:', responseText);
+//       return {
+//         success: false,
+//         identified: false,
+//         reasoning: 'Failed to parse AI response',
+//         rawResponse: responseText
+//       };
+//     }
+
+//   } catch (error) {
+//     logger.error('Gemini image analysis error:', error);
+//     return {
+//       success: false,
+//       identified: false,
+//       error: error.message
+//     };
+//   }
+// }
+
+// ============================================================================
+// CLAUDE - AI IMAGE ANALYSIS
+// ============================================================================
+
+/**
+ * Use Claude to analyze an image and identify the location
+ * @param {string} imageBase64 - Base64 encoded image
+ * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
+ * @param {Object} visionContext - Context from Google Vision (labels, text)
+ * @returns {Promise<Object>} - Identified location information
+ */
+async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+  try {
+    logger.info('Analyzing image with Claude for location identification...');
 
     // Build context from Vision API results
     let contextHints = '';
     if (visionContext.labels?.length > 0) {
-      contextHints += `Labels detected: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
+      contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
     }
     if (visionContext.detectedText) {
-      contextHints += `Text found: "${visionContext.detectedText.substring(0, 200)}"`;
+      contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
     }
 
-    const prompt = `Identify this travel location. ${contextHints}
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,  // Reduced for faster response
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: imageBase64
+              }
+            },
+            {
+              type: 'text',
+              text: `Identify this travel location. ${contextHints}
 
-Reply with ONLY this JSON (no markdown, no code blocks):
-{"identified":true,"confidence":"high","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}
+Reply with ONLY this JSON:
+{"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
+            }
+          ]
+        }
+      ]
+    });
 
-If you cannot identify the location, respond with:
-{"identified":false,"confidence":"low","destination":null,"landmark":null,"reasoning":"Why it couldn't be identified"}`;
-
-    // Create the image part for Gemini
-    const imagePart = {
-      inlineData: {
-        data: imageBase64,
-        mimeType: mediaType
-      }
-    };
-
-    // Generate content with image
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = result.response;
-    const responseText = response.text().trim();
+    const responseText = response.content[0].text.trim();
 
     // Parse the JSON response
     try {
@@ -186,14 +274,14 @@ If you cannot identify the location, respond with:
       }
 
       const analysis = JSON.parse(jsonText);
-      logger.info(`Gemini identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
+      logger.info(`Claude identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
 
       return {
         success: true,
         ...analysis
       };
     } catch (parseError) {
-      logger.error('Failed to parse Gemini response as JSON:', responseText);
+      logger.error('Failed to parse Claude response as JSON:', responseText);
       return {
         success: false,
         identified: false,
@@ -203,7 +291,7 @@ If you cannot identify the location, respond with:
     }
 
   } catch (error) {
-    logger.error('Gemini image analysis error:', error);
+    logger.error('Claude image analysis error:', error);
     return {
       success: false,
       identified: false,
@@ -211,94 +299,6 @@ If you cannot identify the location, respond with:
     };
   }
 }
-
-// ============================================================================
-// CLAUDE - AI IMAGE ANALYSIS (commented out)
-// ============================================================================
-
-// /**
-//  * Use Claude to analyze an image and identify the location
-//  * @param {string} imageBase64 - Base64 encoded image
-//  * @param {string} mediaType - Image MIME type (e.g., 'image/jpeg')
-//  * @param {Object} visionContext - Context from Google Vision (labels, text)
-//  * @returns {Promise<Object>} - Identified location information
-//  */
-// async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-//   try {
-//     logger.info('Analyzing image with Claude for location identification...');
-//
-//     // Build context from Vision API results
-//     let contextHints = '';
-//     if (visionContext.labels?.length > 0) {
-//       contextHints += `Labels: ${visionContext.labels.slice(0, 5).map(l => l.name).join(', ')}. `;
-//     }
-//     if (visionContext.detectedText) {
-//       contextHints += `Text: "${visionContext.detectedText.substring(0, 200)}"`;
-//     }
-//
-//     const response = await anthropic.messages.create({
-//       model: 'claude-sonnet-4-20250514',
-//       max_tokens: 300,  // Reduced for faster response
-//       messages: [
-//         {
-//           role: 'user',
-//           content: [
-//             {
-//               type: 'image',
-//               source: {
-//                 type: 'base64',
-//                 media_type: mediaType,
-//                 data: imageBase64
-//               }
-//             },
-//             {
-//               type: 'text',
-//               text: `Identify this travel location. ${contextHints}
-//
-// Reply with ONLY this JSON:
-// {"identified":true/false,"confidence":"high/medium/low","destination":{"name":"City","country":"Country","fullName":"City, Country"},"landmark":"Landmark name or null","reasoning":"Brief explanation"}`
-//             }
-//           ]
-//         }
-//       ]
-//     });
-//
-//     const responseText = response.content[0].text.trim();
-//
-//     // Parse the JSON response
-//     try {
-//       // Remove markdown code blocks if present
-//       let jsonText = responseText;
-//       if (jsonText.startsWith('```')) {
-//         jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
-//       }
-//
-//       const analysis = JSON.parse(jsonText);
-//       logger.info(`Claude identified location: ${analysis.destination?.fullName || 'Unknown'} (${analysis.confidence})`);
-//
-//       return {
-//         success: true,
-//         ...analysis
-//       };
-//     } catch (parseError) {
-//       logger.error('Failed to parse Claude response as JSON:', responseText);
-//       return {
-//         success: false,
-//         identified: false,
-//         reasoning: 'Failed to parse AI response',
-//         rawResponse: responseText
-//       };
-//     }
-//
-//   } catch (error) {
-//     logger.error('Claude image analysis error:', error);
-//     return {
-//       success: false,
-//       identified: false,
-//       error: error.message
-//     };
-//   }
-// }
 
 // ============================================================================
 // AI ANALYSIS ROUTER - Routes to active provider
