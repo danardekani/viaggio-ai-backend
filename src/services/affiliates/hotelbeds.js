@@ -1,147 +1,203 @@
 // ============================================================================
-// HOTELBEDS API SERVICE - GEOLOCATION BASED
+// HOTELBEDS API SERVICE
 // ============================================================================
-// Uses Google Geocoding API to convert city names to coordinates,
-// then searches HotelBeds Booking API by geolocation for reliable results.
+// HotelBeds integration for hotel search and booking
+// Two APIs: Content API (hotel info) and Booking API (availability/pricing)
 // ============================================================================
 
 import crypto from 'crypto';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../utils/logger.js';
 
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
-const BOOKING_API_BASE = 'https://api.test.hotelbeds.com/hotel-api/1.0';
-const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/hotel-content-api/1.0';
-
-// For production, change to:
-// const BOOKING_API_BASE = 'https://api.hotelbeds.com/hotel-api/1.0';
-// const CONTENT_API_BASE = 'https://api.hotelbeds.com/hotel-content-api/1.0';
-
+// API Configuration
 const API_KEY = process.env.HOTELBEDS_API_KEY;
 const API_SECRET = process.env.HOTELBEDS_API_SECRET;
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/hotel-content-api/1.0';
+const BOOKING_API_BASE = 'https://api.test.hotelbeds.com/hotel-api/1.0';
 
-// Cache for geocoding results (24 hour TTL)
-const geocodeCache = new Map();
-const GEOCODE_CACHE_TTL = 24 * 60 * 60 * 1000;
+// Cache configuration
+const DESTINATIONS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+const HOTEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+let destinationsCache = null;
+let destinationsCacheTime = null;
+const hotelCache = new Map();
 
 // ============================================================================
 // AUTHENTICATION
 // ============================================================================
 
 /**
- * Generate HotelBeds API authentication headers
- * Signature = SHA256(apiKey + secret + timestamp)
+ * Generate HotelBeds X-Signature header
+ * Signature = SHA-256(ApiKey + ApiSecret + Timestamp)
  */
-function getHeaders() {
-  const timestamp = Math.floor(Date.now() / 1000);
+function generateSignature() {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = crypto
     .createHash('sha256')
     .update(API_KEY + API_SECRET + timestamp)
     .digest('hex');
+  
+  return { signature, timestamp };
+}
 
+/**
+ * Get standard headers for HotelBeds API requests
+ */
+function getHeaders() {
+  const { signature } = generateSignature();
+  
   return {
     'Api-key': API_KEY,
     'X-Signature': signature,
     'Accept': 'application/json',
-    'Accept-Encoding': 'gzip',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip'
   };
 }
 
 // ============================================================================
-// GEOCODING - Convert city names to coordinates
+// CONTENT API - DESTINATIONS
 // ============================================================================
 
 /**
- * Geocode a city/destination name to latitude/longitude using Google Geocoding API
+ * Fetch all available destinations from HotelBeds Content API
+ * Results are cached for 30 days
  */
-async function geocodeCity(cityName) {
-  // Check cache first
-  const cacheKey = cityName.toLowerCase().trim();
-  const cached = geocodeCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp) < GEOCODE_CACHE_TTL) {
-    logger.info(`Using cached geocode for "${cityName}"`);
-    return cached.data;
+export async function fetchDestinations() {
+  // Check cache
+  if (destinationsCache && destinationsCacheTime && 
+      (Date.now() - destinationsCacheTime) < DESTINATIONS_CACHE_TTL) {
+    const hoursAgo = Math.round((Date.now() - destinationsCacheTime) / (60 * 60 * 1000));
+    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${hoursAgo}h ago)`);
+    return destinationsCache;
   }
 
-  if (!GOOGLE_MAPS_API_KEY) {
-    logger.error('GOOGLE_MAPS_API_KEY is not configured');
-    throw new Error('Geocoding service not configured');
-  }
-
-  logger.info(`Geocoding city: "${cityName}"`);
+  logger.info('Fetching destinations from HotelBeds Content API...');
 
   try {
     const response = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cityName)}&key=${GOOGLE_MAPS_API_KEY}`
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=en`,
+      {
+        method: 'GET',
+        headers: getHeaders()
+      }
     );
 
     if (!response.ok) {
-      throw new Error(`Geocoding API error: ${response.status}`);
+      const errorText = await response.text();
+      logger.error(`HotelBeds Content API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Content API error: ${response.status}`);
     }
 
     const data = await response.json();
+    destinationsCache = data.destinations || [];
+    destinationsCacheTime = Date.now();
 
-    if (data.status === 'ZERO_RESULTS') {
-      logger.warn(`No geocoding results for "${cityName}"`);
-      return null;
-    }
-
-    if (data.status !== 'OK') {
-      logger.error(`Geocoding API error: ${data.status} - ${data.error_message || ''}`);
-      throw new Error(`Geocoding failed: ${data.status}`);
-    }
-
-    if (data.results && data.results.length > 0) {
-      const result = data.results[0];
-      const location = result.geometry.location;
-      
-      const geoData = {
-        latitude: location.lat,
-        longitude: location.lng,
-        formattedAddress: result.formatted_address,
-        placeId: result.place_id
-      };
-
-      // Cache the result
-      geocodeCache.set(cacheKey, {
-        data: geoData,
-        timestamp: Date.now()
-      });
-
-      logger.info(`Geocoded "${cityName}" → ${geoData.latitude}, ${geoData.longitude} (${geoData.formattedAddress})`);
-      return geoData;
-    }
-
-    return null;
+    logger.info(`Cached ${destinationsCache.length} destinations`);
+    return destinationsCache;
 
   } catch (error) {
-    logger.error('Geocoding error:', error.message);
+    logger.error('Error fetching destinations:', error);
+    throw error;
+  }
+}
+
+/**
+ * Find destination by name (fuzzy matching)
+ */
+async function findDestination(destinationName) {
+  const destinations = await fetchDestinations();
+  const searchLower = destinationName.toLowerCase().trim();
+  
+  // Try exact match first
+  let match = destinations.find(d => 
+    d.name?.toLowerCase() === searchLower
+  );
+  
+  // Try partial match
+  if (!match) {
+    match = destinations.find(d => 
+      d.name?.toLowerCase().includes(searchLower)
+    );
+  }
+  
+  if (match) {
+    logger.info(`Matched destination: "${destinationName}" → ${match.name} (${match.code})`);
+  }
+  
+  return match;
+}
+
+// ============================================================================
+// CONTENT API - HOTELS BY DESTINATION
+// ============================================================================
+
+/**
+ * Fetch hotel codes for a specific destination
+ * This is the critical step before checking availability
+ * Results are cached for 24 hours
+ */
+async function getHotelsByDestination(destinationCode, limit = 100) {
+  const cacheKey = `${destinationCode}-${limit}`;
+  const cached = hotelCache.get(cacheKey);
+  
+  // Check cache
+  if (cached && (Date.now() - cached.timestamp) < HOTEL_CACHE_TTL) {
+    logger.info(`Using cached hotels for ${destinationCode} (${cached.hotels.length} hotels)`);
+    return cached.hotels;
+  }
+
+  logger.info(`Fetching hotels for destination ${destinationCode}...`);
+
+  try {
+    const response = await fetch(
+      `${CONTENT_API_BASE}/hotels?fields=all&destinationCodes=${destinationCode}&language=en&from=1&to=${limit}`,
+      {
+        method: 'GET',
+        headers: getHeaders()
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`HotelBeds Content API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Content API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const hotels = data.hotels || [];
+    
+    logger.info(`Found ${hotels.length} hotels for destination ${destinationCode}`);
+    
+    // DEBUG: Log sample hotel structure to verify data
+    if (hotels.length > 0) {
+      const sample = hotels[0];
+      logger.info(`Sample Content API hotel - code: ${sample.code}, type: ${typeof sample.code}, hasImages: ${!!sample.images?.length}, hasFacilities: ${!!sample.facilities?.length}, hasDescription: ${!!sample.description?.content}`);
+    }
+
+    // Cache results
+    hotelCache.set(cacheKey, {
+      hotels,
+      timestamp: Date.now()
+    });
+
+    return hotels;
+
+  } catch (error) {
+    logger.error('Error fetching hotels by destination:', error);
     throw error;
   }
 }
 
 // ============================================================================
-// HOTEL SEARCH - Main search function using geolocation
+// BOOKING API - HOTEL AVAILABILITY SEARCH
 // ============================================================================
 
 /**
- * Search for hotels using geolocation
- * 
- * @param {Object} params - Search parameters
- * @param {string} params.destination - City or location name
- * @param {string} params.checkIn - Check-in date (YYYY-MM-DD)
- * @param {string} params.checkOut - Check-out date (YYYY-MM-DD)
- * @param {number} params.adults - Number of adults (default: 2)
- * @param {number} params.children - Number of children (default: 0)
- * @param {number} params.rooms - Number of rooms (default: 1)
- * @param {string} params.currency - Currency code (default: USD)
- * @param {number} params.resultCount - Max results to return (default: 20)
- * @returns {Array} - Array of formatted hotel results
+ * Search for hotel availability
+ * Two-step process:
+ *   1. Get hotel codes from Content API
+ *   2. Check availability with Booking API
  */
 export async function searchHotels({
   destination,
@@ -153,126 +209,137 @@ export async function searchHotels({
   currency = 'USD',
   resultCount = 20
 }) {
+  
   logger.info(`Hotel search: ${destination}, ${checkIn} to ${checkOut}, ${adults} adults, ${rooms} rooms`);
 
-  // Validate inputs
-  if (!destination) {
-    throw new Error('Destination is required');
-  }
-  if (!checkIn || !checkOut) {
-    throw new Error('Check-in and check-out dates are required');
-  }
-
-  // STEP 1: Geocode the destination
-  const geo = await geocodeCity(destination);
+  // STEP 1: Find the destination
+  const dest = await findDestination(destination);
   
-  if (!geo) {
-    throw new Error(`Could not find location: ${destination}. Please check the spelling or try a different city name.`);
+  if (!dest) {
+    throw new Error(`Destination not found: ${destination}`);
   }
 
-  // STEP 2: Build occupancy structure for each room
+  // STEP 2: Get hotel codes for this destination (Content API)
+  const destinationHotels = await getHotelsByDestination(dest.code, 150);
+  
+  if (destinationHotels.length === 0) {
+    logger.info(`No hotels found in destination: ${dest.name}`);
+    return [];
+  }
+
+  // Build a lookup map for faster matching (normalize codes to strings)
+  const contentHotelMap = new Map();
+  destinationHotels.forEach(h => {
+    // Store by string version of code for consistent matching
+    const codeStr = String(h.code);
+    contentHotelMap.set(codeStr, h);
+  });
+  
+  logger.info(`Built content hotel map with ${contentHotelMap.size} entries`);
+
+  // Extract hotel codes (limit to prevent huge requests)
+  const hotelCodes = destinationHotels
+    .slice(0, Math.min(100, resultCount * 5)) // Get more than needed for filtering
+    .map(h => parseInt(h.code));
+
+  logger.info(`Checking availability for ${hotelCodes.length} hotels...`);
+
+  // STEP 3: Build occupancy structure for Booking API
   const occupancies = [];
-  const adultsPerRoom = Math.ceil(adults / rooms);
+  const adultsPerRoom = Math.floor(adults / rooms);
+  const childrenPerRoom = children > 0 ? Math.floor(children / rooms) : 0;
   
   for (let i = 0; i < rooms; i++) {
-    const roomOccupancy = {
+    occupancies.push({
       rooms: 1,
       adults: adultsPerRoom,
-      children: 0
-    };
-    
-    // Add children ages if needed (HotelBeds requires ages for children)
-    if (children > 0 && i === 0) {
-      roomOccupancy.children = children;
-      roomOccupancy.paxes = [];
-      for (let c = 0; c < children; c++) {
-        roomOccupancy.paxes.push({ type: 'CH', age: 8 }); // Default age 8
-      }
-    }
-    
-    occupancies.push(roomOccupancy);
+      children: childrenPerRoom
+    });
   }
 
-  // STEP 3: Build the search request
+  // STEP 4: Check availability using Booking API
   const requestBody = {
     stay: {
       checkIn,
       checkOut
     },
     occupancies,
-    geolocation: {
-      latitude: geo.latitude,
-      longitude: geo.longitude,
-      radius: 30,
-      unit: 'km'
-    },
-    filter: {
-      maxHotels: Math.min(resultCount * 2, 50), // Get extra for filtering
-      maxRooms: 5
+    hotels: {
+      hotel: hotelCodes  // Array of hotel codes (not destination!)
     }
   };
 
-  logger.info(`Searching HotelBeds API near ${geo.latitude}, ${geo.longitude}...`);
-
-  // STEP 4: Call HotelBeds Booking API
   try {
-    const response = await fetch(
-      `${BOOKING_API_BASE}/hotels`,
-      {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(requestBody)
-      }
-    );
+    const response = await fetch(`${BOOKING_API_BASE}/hotels`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(requestBody)
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
       logger.error(`HotelBeds Booking API Error: ${response.status} - ${errorText}`);
-      
-      // Parse error for better messaging
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error) {
-          throw new Error(`HotelBeds API: ${errorData.error.message || errorData.error.code}`);
-        }
-      } catch (parseErr) {
-        // If can't parse, throw generic error
-      }
-      
-      throw new Error(`HotelBeds API error: ${response.status}`);
+      throw new Error(`HotelBeds Booking API error: ${response.status}`);
     }
 
     const data = await response.json();
     const hotels = data.hotels?.hotels || [];
-
-    logger.info(`Found ${hotels.length} hotels near ${destination}`);
-
-    if (hotels.length === 0) {
-      return [];
+    
+    logger.info(`Received ${hotels.length} hotels with availability`);
+    
+    // DEBUG: Log sample booking API hotel
+    if (hotels.length > 0) {
+      const sample = hotels[0];
+      logger.info(`Sample Booking API hotel - code: ${sample.code}, type: ${typeof sample.code}`);
     }
 
-    // STEP 5: Format and return results
+    // Format and return results - pass the lookup map
     const formattedHotels = hotels
-      .slice(0, resultCount)
-      .map(hotel => formatHotelResult(hotel, checkIn, checkOut, geo.formattedAddress));
+      .map(hotel => formatHotelResult(hotel, checkIn, checkOut, contentHotelMap))
+      .slice(0, resultCount);
+
+    // DEBUG: Log how many hotels got content data
+    const withImages = formattedHotels.filter(h => h.image).length;
+    const withFacilities = formattedHotels.filter(h => h.facilities?.length > 0).length;
+    logger.info(`Formatted ${formattedHotels.length} hotels: ${withImages} with images, ${withFacilities} with facilities`);
 
     return formattedHotels;
 
   } catch (error) {
-    logger.error('Hotel search error:', error.message);
+    logger.error('Hotel search error:', error);
     throw error;
   }
 }
 
 // ============================================================================
-// HOTEL DETAILS - Get detailed info for a specific hotel
+// GET HOTEL DETAILS
 // ============================================================================
 
 /**
  * Get detailed information about a specific hotel with availability
  */
 export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) {
-  logger.info(`Getting hotel details: ${hotelCode}, ${checkIn} to ${checkOut}`);
+  logger.info(`Fetching hotel details: ${hotelCode}, ${checkIn} to ${checkOut}`);
+
+  // First, try to get content data for this specific hotel
+  let contentHotel = null;
+  try {
+    const contentResponse = await fetch(
+      `${CONTENT_API_BASE}/hotels/${hotelCode}?language=en`,
+      {
+        method: 'GET',
+        headers: getHeaders()
+      }
+    );
+    
+    if (contentResponse.ok) {
+      const contentData = await contentResponse.json();
+      contentHotel = contentData.hotel;
+      logger.info(`Got content data for hotel ${hotelCode}: hasImages=${!!contentHotel?.images?.length}, hasFacilities=${!!contentHotel?.facilities?.length}`);
+    }
+  } catch (err) {
+    logger.warn(`Could not fetch content for hotel ${hotelCode}: ${err.message}`);
+  }
 
   const requestBody = {
     stay: {
@@ -290,14 +357,11 @@ export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) 
   };
 
   try {
-    const response = await fetch(
-      `${BOOKING_API_BASE}/hotels`,
-      {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(requestBody)
-      }
-    );
+    const response = await fetch(`${BOOKING_API_BASE}/hotels`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(requestBody)
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -306,260 +370,221 @@ export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) 
     }
 
     const data = await response.json();
-    const hotels = data.hotels?.hotels || [];
+    const hotel = data.hotels?.hotels?.[0];
 
-    if (hotels.length === 0) {
-      throw new Error('Hotel not found or not available for these dates');
+    if (!hotel) {
+      throw new Error(`Hotel not found: ${hotelCode}`);
     }
 
-    return formatHotelResult(hotels[0], checkIn, checkOut);
+    // Create a map with just this one hotel's content
+    const contentMap = new Map();
+    if (contentHotel) {
+      contentMap.set(String(hotelCode), contentHotel);
+    }
+
+    return formatHotelResult(hotel, checkIn, checkOut, contentMap);
 
   } catch (error) {
-    logger.error('Hotel details error:', error.message);
+    logger.error('Hotel details error:', error);
     throw error;
   }
 }
 
 // ============================================================================
-// RESULT FORMATTING
+// FORMAT HOTEL RESULT
 // ============================================================================
 
-/**
- * Format a hotel from the API response into a consistent structure
- */
-function formatHotelResult(hotel, checkIn, checkOut, locationContext = '') {
-  // Get the cheapest room/rate
+function formatHotelResult(hotel, checkIn, checkOut, contentHotelMap = new Map()) {
+  // Get the cheapest room rate
   const rooms = hotel.rooms || [];
-  let cheapestRate = null;
-  let cheapestRoom = null;
+  const cheapestRoom = rooms.sort((a, b) => {
+    const aPrice = a.rates?.[0]?.net || Infinity;
+    const bPrice = b.rates?.[0]?.net || Infinity;
+    return aPrice - bPrice;
+  })[0];
 
-  for (const room of rooms) {
-    for (const rate of room.rates || []) {
-      const price = parseFloat(rate.net);
-      if (!cheapestRate || price < parseFloat(cheapestRate.net)) {
-        cheapestRate = rate;
-        cheapestRoom = room;
-      }
-    }
+  const rate = cheapestRoom?.rates?.[0];
+  const price = rate?.net ? parseFloat(rate.net) : 0;
+  const currency = hotel.currency || 'USD';
+
+  // Get additional info from Content API data if available
+  // Use string comparison for consistent matching
+  const hotelCodeStr = String(hotel.code);
+  const contentHotel = contentHotelMap.get(hotelCodeStr);
+  
+  // DEBUG: Log matching attempt
+  if (!contentHotel) {
+    logger.debug(`No content match for hotel code ${hotelCodeStr} (map size: ${contentHotelMap.size})`);
   }
 
-  const totalPrice = cheapestRate ? parseFloat(cheapestRate.net) : null;
-  const nights = calculateNights(checkIn, checkOut);
-  const pricePerNight = totalPrice && nights > 0 ? (totalPrice / nights).toFixed(2) : null;
+  // Get hotel images from Content API
+  let image = null;
+  let images = [];
+  
+  if (contentHotel?.images && contentHotel.images.length > 0) {
+    const contentImages = contentHotel.images;
+    
+    // Find main image (type HAB = room, GEN = general, COM = common areas)
+    const mainImage = contentImages.find(img => img.type?.code === 'GEN') || 
+                      contentImages.find(img => img.type?.code === 'HAB') || 
+                      contentImages[0];
+    
+    if (mainImage?.path) {
+      image = `https://photos.hotelbeds.com/giata/${mainImage.path}`;
+    }
+    
+    // Get multiple images for gallery
+    images = contentImages.slice(0, 10).map(img => ({
+      url: `https://photos.hotelbeds.com/giata/${img.path}`,
+      type: img.type?.description || 'Hotel'
+    }));
+  }
 
-  // Build amenities list from facilities if available
-  const amenities = [];
-  if (hotel.facilities) {
-    hotel.facilities.slice(0, 6).forEach(f => {
-      if (f.description?.content) {
-        amenities.push(f.description.content);
+  // Calculate nights
+  const nights = calculateNights(checkIn, checkOut);
+
+  // Extract star rating from categoryCode (e.g., "4EST" = 4 stars)
+  const categoryMatch = hotel.categoryCode?.match(/(\d+)/);
+  const starRating = categoryMatch ? parseInt(categoryMatch[1]) : null;
+
+  // Get facilities from Content API
+  const facilities = [];
+  if (contentHotel?.facilities && contentHotel.facilities.length > 0) {
+    contentHotel.facilities.slice(0, 15).forEach(f => {
+      const desc = f.description?.content;
+      if (desc && !facilities.includes(desc)) {
+        facilities.push(desc);
       }
     });
   }
 
+  // Get description from Content API
+  const description = contentHotel?.description?.content || '';
+
+  // Get address from Content API
+  const address = contentHotel?.address?.content || '';
+
   return {
     id: hotel.code?.toString(),
-    code: hotel.code?.toString(),
-    name: hotel.name || 'Unknown Hotel',
-    description: hotel.description?.content || null,
-    
-    // Location
-    location: formatLocation(hotel, locationContext),
-    address: hotel.address?.content || null,
-    city: hotel.city?.content || hotel.destinationName || null,
-    
-    // Coordinates
-    latitude: hotel.latitude,
-    longitude: hotel.longitude,
-    
-    // Category/Rating
-    category: hotel.categoryName || hotel.categoryCode,
+    hotelCode: hotel.code,
+    name: hotel.name,
+    location: formatLocation(hotel),
     categoryCode: hotel.categoryCode,
-    stars: parseStarRating(hotel.categoryCode),
+    categoryName: hotel.categoryName,
+    rating: starRating,
     
     // Pricing
-    price: totalPrice,
-    totalPrice: totalPrice,
-    pricePerNight: pricePerNight ? parseFloat(pricePerNight) : null,
-    currency: cheapestRate?.currency || 'USD',
+    price,
+    currency,
+    pricePerNight: nights > 0 ? (price / nights).toFixed(2) : price.toFixed(2),
+    totalPrice: price.toFixed(2),
+    nights,
+    rateType: rate?.rateType || 'BOOKABLE',
     
-    // Room info
-    roomType: cheapestRoom?.name || null,
-    boardType: cheapestRate?.boardName || cheapestRate?.boardCode || null,
+    // Images (from Content API)
+    image,
+    images,
     
-    // Availability
-    available: rooms.length > 0,
-    roomsAvailable: cheapestRate?.allotment || null,
+    // Details (from Content API)
+    description,
+    address,
+    city: hotel.destinationName || '',
+    country: contentHotel?.countryCode || '',
+    coordinates: {
+      latitude: parseFloat(hotel.latitude) || null,
+      longitude: parseFloat(hotel.longitude) || null
+    },
     
-    // Policies
-    cancellationPolicy: formatCancellationPolicy(cheapestRate?.cancellationPolicies),
-    paymentType: cheapestRate?.paymentType,
+    // Amenities/Facilities (from Content API)
+    facilities,
     
-    // Images
-    image: hotel.images?.[0]?.path 
-      ? `https://photos.hotelbeds.com/giata/bigger/${hotel.images[0].path}`
-      : null,
-    images: (hotel.images || []).slice(0, 5).map(img => 
-      `https://photos.hotelbeds.com/giata/bigger/${img.path}`
-    ),
+    // Room information
+    roomCode: cheapestRoom?.code,
+    roomName: cheapestRoom?.name || 'Standard Room',
+    boardCode: rate?.boardCode,
+    boardName: rate?.boardName || 'Room Only',
     
-    // Amenities
-    amenities: amenities.length > 0 ? amenities : ['WiFi', 'Air Conditioning'],
-    
-    // Dates
+    // Booking info
+    rateKey: rate?.rateKey,
+    allotment: rate?.allotment,
+    paymentType: rate?.paymentType,
     checkIn,
     checkOut,
-    nights,
+    cancellationPolicies: rate?.cancellationPolicies || [],
     
     // Links
-    bookingLink: `/book/hotel/${hotel.code}?checkIn=${checkIn}&checkOut=${checkOut}`,
-    
-    // Raw data for advanced use
-    rateKey: cheapestRate?.rateKey || null
+    bookingLink: buildBookingLink(hotel.code, checkIn, checkOut)
   };
 }
 
-/**
- * Format location string from hotel data
- */
-function formatLocation(hotel, locationContext = '') {
+function formatLocation(hotel) {
   const parts = [];
-  
-  if (hotel.zoneName) {
-    parts.push(hotel.zoneName);
-  }
-  if (hotel.destinationName) {
-    parts.push(hotel.destinationName);
-  }
-  
-  if (parts.length > 0) {
-    return parts.join(', ');
-  }
-  
-  if (locationContext) {
-    return locationContext;
-  }
-  
-  return 'Location not specified';
+  if (hotel.zoneName) parts.push(hotel.zoneName);
+  if (hotel.destinationName) parts.push(hotel.destinationName);
+  return parts.join(', ') || 'Location not specified';
 }
 
-/**
- * Parse star rating from category code (e.g., "4EST" -> 4)
- */
-function parseStarRating(categoryCode) {
-  if (!categoryCode) return null;
-  const match = categoryCode.match(/^(\d)/);
-  return match ? parseInt(match[1]) : null;
-}
-
-/**
- * Calculate number of nights between dates
- */
 function calculateNights(checkIn, checkOut) {
   const start = new Date(checkIn);
   const end = new Date(checkOut);
   const diffTime = Math.abs(end - start);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
 }
 
-/**
- * Format cancellation policy for display
- */
-function formatCancellationPolicy(policies) {
-  if (!policies || policies.length === 0) {
-    return 'Contact hotel for cancellation policy';
-  }
-  
-  const firstPolicy = policies[0];
-  if (firstPolicy.amount === '0.00' || firstPolicy.amount === '0') {
-    const fromDate = new Date(firstPolicy.from);
-    return `Free cancellation until ${fromDate.toLocaleDateString()}`;
-  }
-  
-  return 'Cancellation fees may apply';
+function buildBookingLink(hotelCode, checkIn, checkOut) {
+  return `/book/hotel/${hotelCode}?checkIn=${checkIn}&checkOut=${checkOut}`;
 }
 
 // ============================================================================
-// AUTOCOMPLETE - For search suggestions
+// DESTINATION SEARCH & AUTOCOMPLETE
 // ============================================================================
 
 /**
- * Search for destination suggestions using Google Places Autocomplete
+ * Search destinations for autocomplete
  */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
     return [];
   }
 
-  if (!GOOGLE_MAPS_API_KEY) {
-    logger.warn('GOOGLE_MAPS_API_KEY not configured, autocomplete unavailable');
-    return [];
-  }
+  const destinations = await fetchDestinations();
+  const searchLower = searchTerm.toLowerCase();
+  
+  const scored = destinations
+    .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+    .map(d => {
+      const nameLower = d.name.toLowerCase();
+      let score = 0;
+      
+      if (nameLower === searchLower) score = 100;
+      else if (nameLower.startsWith(searchLower)) score = 80;
+      else score = 50;
+      
+      return { ...d, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 
-  try {
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(searchTerm)}&types=(cities)&key=${GOOGLE_MAPS_API_KEY}`
-    );
-
-    if (!response.ok) {
-      throw new Error(`Places API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-      logger.error(`Places API error: ${data.status}`);
-      return [];
-    }
-
-    const predictions = data.predictions || [];
-    
-    return predictions.slice(0, limit).map(p => ({
-      name: p.structured_formatting?.main_text || p.description,
-      displayName: p.description,
-      placeId: p.place_id
-    }));
-
-  } catch (error) {
-    logger.error('Autocomplete error:', error.message);
-    return [];
-  }
+  return scored.map(d => ({
+    code: d.code,
+    name: d.name,
+    countryCode: d.countryCode,
+    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+  }));
 }
 
-// ============================================================================
-// DESTINATIONS LIST - For UI dropdowns (uses popular cities)
-// ============================================================================
-
 /**
- * Get list of popular destinations for dropdowns
- * This returns a static list of popular destinations since we use geocoding
+ * Get list of all destinations
  */
 export async function getDestinations() {
-  // Return popular destinations - these will be geocoded when searched
-  const popularDestinations = [
-    { code: 'NYC', name: 'New York', countryCode: 'US', displayName: 'New York, USA' },
-    { code: 'LON', name: 'London', countryCode: 'GB', displayName: 'London, UK' },
-    { code: 'PAR', name: 'Paris', countryCode: 'FR', displayName: 'Paris, France' },
-    { code: 'ROM', name: 'Rome', countryCode: 'IT', displayName: 'Rome, Italy' },
-    { code: 'BCN', name: 'Barcelona', countryCode: 'ES', displayName: 'Barcelona, Spain' },
-    { code: 'DXB', name: 'Dubai', countryCode: 'AE', displayName: 'Dubai, UAE' },
-    { code: 'TYO', name: 'Tokyo', countryCode: 'JP', displayName: 'Tokyo, Japan' },
-    { code: 'LAX', name: 'Los Angeles', countryCode: 'US', displayName: 'Los Angeles, USA' },
-    { code: 'MIA', name: 'Miami', countryCode: 'US', displayName: 'Miami, USA' },
-    { code: 'LAS', name: 'Las Vegas', countryCode: 'US', displayName: 'Las Vegas, USA' },
-    { code: 'SFO', name: 'San Francisco', countryCode: 'US', displayName: 'San Francisco, USA' },
-    { code: 'CHI', name: 'Chicago', countryCode: 'US', displayName: 'Chicago, USA' },
-    { code: 'AMS', name: 'Amsterdam', countryCode: 'NL', displayName: 'Amsterdam, Netherlands' },
-    { code: 'BKK', name: 'Bangkok', countryCode: 'TH', displayName: 'Bangkok, Thailand' },
-    { code: 'SIN', name: 'Singapore', countryCode: 'SG', displayName: 'Singapore' },
-    { code: 'SYD', name: 'Sydney', countryCode: 'AU', displayName: 'Sydney, Australia' },
-    { code: 'CUN', name: 'Cancun', countryCode: 'MX', displayName: 'Cancun, Mexico' },
-    { code: 'IST', name: 'Istanbul', countryCode: 'TR', displayName: 'Istanbul, Turkey' },
-    { code: 'MAD', name: 'Madrid', countryCode: 'ES', displayName: 'Madrid, Spain' },
-    { code: 'MIL', name: 'Milan', countryCode: 'IT', displayName: 'Milan, Italy' }
-  ];
-
-  return popularDestinations;
+  const destinations = await fetchDestinations();
+  return destinations.map(d => ({
+    code: d.code,
+    name: d.name,
+    countryCode: d.countryCode,
+    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+  }));
 }
 
 // ============================================================================
@@ -567,18 +592,12 @@ export async function getDestinations() {
 // ============================================================================
 
 /**
- * Clear geocoding cache (useful for debugging)
- */
-export function clearGeocodeCache() {
-  geocodeCache.clear();
-  logger.info('Geocode cache cleared');
-}
-
-/**
- * Clear all caches
+ * Clear all caches (useful for debugging or testing)
  */
 export function clearAllCaches() {
-  geocodeCache.clear();
+  hotelCache.clear();
+  destinationsCache = null;
+  destinationsCacheTime = null;
   logger.info('All caches cleared');
 }
 
@@ -591,6 +610,6 @@ export default {
   getHotelDetails,
   getDestinations,
   searchDestinationsAutocomplete,
-  clearGeocodeCache,
+  fetchDestinations,
   clearAllCaches
 };
