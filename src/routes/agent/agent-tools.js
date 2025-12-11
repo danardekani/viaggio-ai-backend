@@ -7,7 +7,7 @@
 
 export const agentTools = [
   // ==========================================================================
-  // TOUR SEARCH TOOL (Active - uses Viator API) //
+  // TOUR SEARCH TOOL (Active - uses Viator API)
   // ==========================================================================
   {
     name: 'search_tours',
@@ -18,6 +18,7 @@ Use this tool when the user wants to:
 - Look for specific activities (food tours, walking tours, museums, etc.)
 - Browse experiences for a trip
 - Find tours within a budget or date range
+- Sort tours by reviews, rating, price, etc.
 
 The tool returns real, bookable tours with prices, ratings, and availability.`,
     input_schema: {
@@ -31,6 +32,11 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
           type: 'array',
           items: { type: 'string' },
           description: 'Types of activities to search for (e.g., ["food", "history", "adventure", "wine", "art"]). Leave empty for general search.'
+        },
+        sort_by: {
+          type: 'string',
+          enum: ['popular', 'reviews', 'rating', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'],
+          description: 'How to sort results: "popular" (default), "reviews" (most reviewed), "rating" (highest rated), "price_low", "price_high", "newest", "duration_short", "duration_long"'
         },
         start_date: {
           type: 'string',
@@ -70,17 +76,17 @@ Use this tool when the user wants to:
 - Look for flights on specific dates
 - Check flight options for a trip
 
-NOTE: This tool is not yet connected to a live API. It will return a message indicating flights are coming soon.`,
+NOTE: This tool is not yet connected to a live API. It will return a placeholder response.`,
     input_schema: {
       type: 'object',
       properties: {
         origin: {
           type: 'string',
-          description: 'Departure city name or airport code (e.g., "Philadelphia", "PHL", "New York", "JFK")'
+          description: 'Departure city or airport code (e.g., "New York" or "JFK")'
         },
         destination: {
           type: 'string',
-          description: 'Arrival city name or airport code (e.g., "Rome", "FCO", "Paris", "CDG")'
+          description: 'Arrival city or airport code (e.g., "Paris" or "CDG")'
         },
         departure_date: {
           type: 'string',
@@ -97,7 +103,7 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
         cabin_class: {
           type: 'string',
           enum: ['economy', 'premium_economy', 'business', 'first'],
-          description: 'Cabin class preference (default: economy)'
+          description: 'Preferred cabin class (default: economy)'
         }
       },
       required: ['origin', 'destination', 'departure_date']
@@ -105,7 +111,7 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
   },
 
   // ==========================================================================
-  // HOTEL SEARCH TOOL - NOW ACTIVE! (Connected to HotelBeds API)
+  // HOTEL SEARCH TOOL (Active - uses HotelBeds API)
   // ==========================================================================
   {
     name: 'search_hotels',
@@ -114,13 +120,14 @@ NOTE: This tool is not yet connected to a live API. It will return a message ind
 Use this tool when the user wants to:
 - Find hotels in a city
 - Look for accommodations for specific dates
-- Compare hotel prices
+- Compare hotel prices and options
 - Find hotels within a budget
+- Get hotel recommendations
 
-The tool returns real hotels with prices, ratings, and availability.`,
+The tool returns real, bookable hotels with prices, star ratings, amenities, and availability. 
+Hotels are sourced from HotelBeds' inventory of 180K+ properties worldwide.
 
-//IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
-  
+IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
     input_schema: {
       type: 'object',
       properties: {
@@ -166,22 +173,23 @@ The tool returns real hotels with prices, ratings, and availability.`,
     
 Use this tool when the user wants to:
 - Learn about a destination before booking
-- Get recommendations for areas to stay
+- Get tips for visiting a place
 - Understand the best time to visit
-- Get local tips and cultural information
+- Learn about different neighborhoods or areas
+- Get general travel advice
 
-This tool uses AI knowledge to provide helpful destination information.`,
+This uses Claude's knowledge rather than an external API.`,
     input_schema: {
       type: 'object',
       properties: {
         destination: {
           type: 'string',
-          description: 'City, region, or country name'
+          description: 'City, region, or country to get information about'
         },
         topics: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Specific topics to cover (e.g., ["weather", "neighborhoods", "food", "safety", "transportation"])'
+          description: 'Specific topics to cover (e.g., ["best_time", "neighborhoods", "local_food", "safety", "transportation"])'
         }
       },
       required: ['destination']
@@ -189,81 +197,78 @@ This tool uses AI knowledge to provide helpful destination information.`,
   },
 
   // ==========================================================================
-  // IDENTIFY LOCATION TOOL (Uses Google Vision + Claude)
+  // LOCATION IDENTIFICATION TOOL (Uses Vision AI)
   // ==========================================================================
   {
     name: 'identify_location',
-    description: `Identify a travel destination from an image. This is used with the "Where Is This?" feature.
+    description: `Identify a travel destination from an image.
     
-Use this tool when the user:
-- Uploads an image and asks where it is
-- Wants to identify a landmark or destination from a photo
-- Shares a travel photo and wants to visit that place
+Use this tool when the user uploads an image and wants to know:
+- What place/landmark is shown
+- Where the photo was taken
+- Information about the location in the image
 
-The tool uses Google Cloud Vision for landmark detection and AI analysis for scene recognition.`,
+NOTE: This requires an image URL or base64 data to be provided.`,
     input_schema: {
       type: 'object',
       properties: {
-        image_base64: {
+        image_url: {
           type: 'string',
-          description: 'Base64 encoded image data'
+          description: 'URL of the image to analyze'
         },
-        media_type: {
+        image_data: {
           type: 'string',
-          description: 'Image MIME type (e.g., "image/jpeg", "image/png")'
+          description: 'Base64-encoded image data (alternative to URL)'
         }
       },
-      required: ['image_base64']
+      required: []
     }
   }
 ];
 
-// ==========================================================================
+// ============================================================================
 // SYSTEM PROMPT FOR TRAVEL AGENT
-// ==========================================================================
+// ============================================================================
 
-export const travelAgentSystemPrompt = `You are Via, the travel expert for Viaggio.ai. Friendly, knowledgeable, and concise.
+export const travelAgentSystemPrompt = `You are Via, a friendly and knowledgeable AI travel agent for Viaggio.ai. Your goal is to help users plan amazing trips by finding tours, hotels, and providing destination advice.
 
-TOOLS:
-- search_tours: Find activities (ACTIVE - Viator API)
-- search_hotels: Find accommodations (ACTIVE - HotelBeds API) 
-- search_flights: COMING SOON (mention this if asked)
-- get_destination_info: Destination tips
-- identify_location: ID places from photos
+## Your Personality
+- Warm, enthusiastic, and helpful
+- You love travel and get excited about helping people explore
+- You're efficient - you search for what users need rather than asking too many questions
+- You give concise responses with the key information
 
-RESPONSE STYLE:
-- Keep responses under 100 words when possible
-- Be warm but brief - no lengthy paragraphs
-- Tour/hotel results appear as cards automatically - don't list them all
-- After searching, count the actual results returned and mention that exact number
-- Give 1-2 specific highlights, then ask a follow-up question
+## How to Help Users
 
-EXAMPLE GOOD RESPONSES:
+### When users want to find tours/activities:
+1. Use the search_tours tool immediately with their destination
+2. If they mention specific interests (food, history, adventure), include those
+3. If they want to sort by reviews, rating, price, etc., use the sort_by parameter
+4. Present the results in a friendly way, highlighting key details
 
-After finding tours:
-"Found 8 great tours in Rome! 🎉 Prices range from $31-$105. The Vatican skip-the-line tour is super popular, and the Colosseum arena floor access is a unique experience. What interests you more - history, food, or art?"
+### When users want hotels:
+1. Ask for dates if not provided (check-in and check-out are required)
+2. Use search_hotels with full city names (not abbreviations)
+3. Present options with prices and key amenities
 
-After finding hotels:
-"Found 12 hotels in New York! 🏨 Prices range from $150-$450/night. The Times Square Marriott has great reviews (4.5 stars), and The Pod Hotel offers an affordable option. What's your budget?"
+### When users want destination info:
+1. Use get_destination_info for travel tips and advice
+2. Share your knowledge enthusiastically
 
-IMPORTANT: 
-- Count results accurately - if 7 items were returned, say "Found 7", not "Found 5"
-- For hotels, ALWAYS use full city names: "New York" not "NYC", "London" not "LON"
+### When users want flights:
+1. Let them know flight search is coming soon
+2. Offer to help with tours or hotels instead
 
-DON'T:
-- Write long paragraphs
-- List every result with details (cards do that)
-- Over-explain
-- Use bullet points
-- Guess at counts - count them accurately
-- Use city abbreviations for hotel searches
+## Response Style
+- Be conversational but efficient
+- Don't repeat back all the search parameters
+- Focus on the results and why they're good options
+- Use emojis sparingly but warmly ✈️ 🏨 🎯
+- Keep responses concise - let the tour/hotel cards speak for themselves
 
-DO:
-- Be conversational and warm
-- Count actual results accurately
-- Give 1-2 specific recommendations
-- Ask ONE follow-up question
-- Mention price ranges briefly
-- Use full city names for hotel searches`;
-
-export default { agentTools, travelAgentSystemPrompt };
+## Important Notes
+- Always use tools when users want to search for something
+- Don't make up tour or hotel information - only use real results from tools
+- If a search returns no results, suggest alternatives
+- For sorting by reviews, use sort_by: "reviews"
+- For sorting by rating, use sort_by: "rating"`;
