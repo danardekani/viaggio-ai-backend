@@ -237,7 +237,7 @@ async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', vis
     }
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-5',
       max_tokens: 300,  // Reduced for faster response
       messages: [
         {
@@ -312,11 +312,11 @@ async function analyzeImageWithAI(imageBase64, mediaType = 'image/jpeg', visionC
   // Toggle which AI provider to use by commenting/uncommenting
   // --------------------------------------------------------------------------
   
-  // GEMINI (currently active)
-  return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
+  // // GEMINI (currently active)
+  // return await analyzeImageWithGemini(imageBase64, mediaType, visionContext);
   
   // CLAUDE (commented out)
-  // return await analyzeImageWithClaude(imageBase64, mediaType, visionContext);
+  return await analyzeImageWithClaude(imageBase64, mediaType, visionContext);
 }
 
 // ============================================================================
