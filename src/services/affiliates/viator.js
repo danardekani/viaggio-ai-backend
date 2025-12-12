@@ -766,15 +766,17 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       const destId = d.id || d.destinationId;
       const cachedDest = destMap.get(destId);
       const destType = cachedDest?.type || 'DESTINATION';
+      const name = d.name || d.destinationName;
+      
+      // Build a user-friendly display name based on type
+      const displayName = buildDisplayName(name, destId, destType, destMap);
       
       return {
         destinationId: destId?.toString(),
-        name: d.name || d.destinationName,
+        name: name,
         type: destType,
         parentName: d.parentDestinationName || null,
-        displayName: d.parentDestinationName 
-          ? `${d.name || d.destinationName}, ${d.parentDestinationName}`
-          : d.name || d.destinationName
+        displayName: displayName
       };
     });
 
@@ -788,12 +790,101 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 }
 
 /**
+ * Build a user-friendly display name for a destination
+ * - Country: "France"
+ * - Region: "Tuscany, Italy"
+ * - City: "Paris, France" (not "Paris, Ile-de-France")
+ * - Town/District: "Oia, Santorini, Greece"
+ */
+function buildDisplayName(name, destId, destType, destMap) {
+  // Get the full ancestry chain for this destination
+  const ancestry = getDestinationAncestry(destId, destMap);
+  
+  // Find the country (type === 'COUNTRY') in the ancestry
+  const country = ancestry.find(d => d.type === 'COUNTRY');
+  const countryName = country?.name || null;
+  
+  // Handle different destination types
+  if (destType === 'COUNTRY') {
+    // Countries just show their name
+    return name;
+  }
+  
+  if (destType === 'REGION' || destType === 'STATE') {
+    // Regions show: "Region, Country"
+    return countryName ? `${name}, ${countryName}` : name;
+  }
+  
+  if (destType === 'CITY') {
+    // Cities show: "City, Country"
+    return countryName ? `${name}, ${countryName}` : name;
+  }
+  
+  // For towns, districts, or other sub-city types, show: "Town, City, Country"
+  // Find the parent city in ancestry
+  const parentCity = ancestry.find(d => d.type === 'CITY');
+  
+  if (parentCity && countryName) {
+    return `${name}, ${parentCity.name}, ${countryName}`;
+  } else if (countryName) {
+    return `${name}, ${countryName}`;
+  }
+  
+  // Fallback: just use the immediate parent if we have one
+  const cachedDest = destMap.get(destId);
+  if (cachedDest?.parentDestinationId) {
+    const parent = destMap.get(cachedDest.parentDestinationId);
+    if (parent) {
+      return `${name}, ${parent.name}`;
+    }
+  }
+  
+  return name;
+}
+
+/**
+ * Get the ancestry chain for a destination (parent, grandparent, etc.)
+ */
+function getDestinationAncestry(destId, destMap, maxDepth = 5) {
+  const ancestry = [];
+  let currentId = destId;
+  let depth = 0;
+  
+  while (currentId && depth < maxDepth) {
+    const dest = destMap.get(currentId);
+    if (!dest) break;
+    
+    // Don't include the destination itself, only its ancestors
+    if (dest.parentDestinationId) {
+      const parent = destMap.get(dest.parentDestinationId);
+      if (parent) {
+        ancestry.push({
+          id: parent.destinationId,
+          name: parent.name,
+          type: parent.type
+        });
+        currentId = parent.destinationId;
+      } else {
+        break;
+      }
+    } else {
+      break;
+    }
+    
+    depth++;
+  }
+  
+  return ancestry;
+}
+
+/**
  * Fallback to searching cached destinations when API fails
  */
 async function fallbackDestinationSearch(searchTerm, limit = 8) {
   try {
     const destinations = await fetchDestinations();
     const searchLower = searchTerm.toLowerCase();
+    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
     const scored = destinations
       .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
@@ -811,17 +902,16 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-
-    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
     return scored.map(d => {
-      const parent = d.parentDestinationId ? destMap.get(d.parentDestinationId) : null;
+      const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
+      
       return {
         destinationId: d.destinationId?.toString(),
         name: d.name,
         type: d.type || 'CITY',
-        parentName: parent?.name || null,
-        displayName: parent?.name ? `${d.name}, ${parent.name}` : d.name
+        parentName: null,
+        displayName: displayName
       };
     });
 
