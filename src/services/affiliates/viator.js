@@ -90,6 +90,57 @@ export function clearDestinationCache() {
 }
 
 // ============================================================================
+// TRANSFER/TRANSPORT DETECTION
+// ============================================================================
+
+const TRANSFER_KEYWORDS = [
+  'private transfer',
+  'airport transfer',
+  'chauffeur',
+  'car transfer',
+  'shuttle transfer',
+  'taxi',
+  'transportation to',
+  'transportation from',
+  'transfer from',
+  'transfer to',
+  'pickup from',
+  'drop-off'
+];
+
+/**
+ * Check if a tour is actually a private transfer/transport service
+ */
+function isTransferProduct(product) {
+  const title = (product.title || product.name || '').toLowerCase();
+  return TRANSFER_KEYWORDS.some(keyword => title.includes(keyword));
+}
+
+/**
+ * Filter and sort products to prioritize actual tours over transfers
+ * @param {Array} products - Array of tour products
+ * @param {boolean} excludeTransfers - If true, completely exclude transfers
+ * @returns {Array} Filtered/sorted products
+ */
+function filterTransfers(products, excludeTransfers = false) {
+  if (!products || products.length === 0) return products;
+  
+  const tours = products.filter(p => !isTransferProduct(p));
+  const transfers = products.filter(p => isTransferProduct(p));
+  
+  if (excludeTransfers) {
+    logger.info(`Filtered out ${transfers.length} transfer products, keeping ${tours.length} tours`);
+    return tours;
+  }
+  
+  // Put tours first, transfers at the end
+  if (transfers.length > 0) {
+    logger.info(`Deprioritized ${transfers.length} transfer products, ${tours.length} tours shown first`);
+  }
+  return [...tours, ...transfers];
+}
+
+// ============================================================================
 // GET TAGS FROM SEARCH TERMS
 // ============================================================================
 
@@ -469,6 +520,15 @@ export async function searchTours({
       logger.info(`Sorted ${products.length} tours by review count`);
     }
 
+    // Filter out/deprioritize transfers - actual tours should come first
+    products = filterTransfers(products, false);
+    
+    // If ALL results are transfers, try to find actual tours from a broader search
+    const actualTours = products.filter(p => !isTransferProduct(p));
+    if (actualTours.length === 0 && products.length > 0) {
+      logger.warn(`Only transfers found for ${destination}, no actual tours available`);
+    }
+
     return products.slice(0, resultCount).map(p => formatTourResult(p));
 
   } catch (error) {
@@ -606,6 +666,15 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
       return reviewsB - reviewsA;
     });
     logger.info(`Sorted ${products.length} tours by review count (top: ${products[0]?.reviews?.totalReviews || products[0]?.reviewCount || 0} reviews)`);
+  }
+
+  // Filter out/deprioritize transfers - actual tours should come first
+  products = filterTransfers(products, false);
+  
+  // If ALL results are transfers, log a warning
+  const actualTours = products.filter(p => !isTransferProduct(p));
+  if (actualTours.length === 0 && products.length > 0) {
+    logger.warn(`Only transfers found for ${destination}, no actual tours available`);
   }
 
   return products.slice(0, resultCount).map(p => formatTourResult(p));
