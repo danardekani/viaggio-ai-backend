@@ -64,7 +64,7 @@ async function executeSearchTours(input) {
   const {
     destination,
     interests = [],
-    sort_by = 'popular',  // NEW: Added sort_by parameter
+    sort_by = 'popular',
     start_date,
     end_date,
     max_price,
@@ -76,14 +76,18 @@ async function executeSearchTours(input) {
 
   try {
     // Step 1: Use Viator's autocomplete to find the best matching destination
+    // Get multiple results so we can pick the most specific match
     let searchDestination = destination;
+    let destinationId = null;
     
     try {
-      const autocompleteResults = await searchDestinationsAutocomplete(destination, 1);
+      const autocompleteResults = await searchDestinationsAutocomplete(destination, 5);
       if (autocompleteResults && autocompleteResults.length > 0) {
-        const bestMatch = autocompleteResults[0];
+        // Find the best match - prefer exact/closest matches and cities over countries
+        const bestMatch = findBestDestinationMatch(destination, autocompleteResults);
         searchDestination = bestMatch.name || bestMatch.destinationName || destination;
-        logger.info(`Autocomplete matched "${destination}" -> "${searchDestination}" (ID: ${bestMatch.destinationId})`);
+        destinationId = bestMatch.destinationId;
+        logger.info(`Autocomplete matched "${destination}" -> "${searchDestination}" (ID: ${destinationId}, type: ${bestMatch.type})`);
       }
     } catch (autoError) {
       logger.warn(`Autocomplete failed, using original destination: ${autoError.message}`);
@@ -92,8 +96,9 @@ async function executeSearchTours(input) {
     // Step 2: Search for tours using the matched destination
     const tours = await searchTours({
       destination: searchDestination,
+      destinationId: destinationId,  // Pass the ID if we have it
       searchTerms: interests.join(' '),
-      sortBy: sort_by,  // NEW: Pass sort_by to Viator service
+      sortBy: sort_by,
       startDate: start_date,
       endDate: end_date,
       maxPrice: max_price,
@@ -110,7 +115,6 @@ async function executeSearchTours(input) {
       };
     }
 
-    // Tours are already formatted by viator.js - just pass them through
     logger.info(`Found ${tours.length} tours in ${searchDestination} (sorted by: ${sort_by})`);
 
     return {
@@ -129,6 +133,63 @@ async function executeSearchTours(input) {
       suggestion: 'Please try again or try a different destination.'
     };
   }
+}
+
+// ==========================================================================
+// HELPER: Find best destination match from autocomplete results
+// ==========================================================================
+
+function findBestDestinationMatch(query, results) {
+  if (!results || results.length === 0) return null;
+  if (results.length === 1) return results[0];
+  
+  const queryLower = query.toLowerCase().trim();
+  
+  // Extract the primary destination name (before any comma)
+  // e.g., "Santorini, Greece" -> "santorini"
+  const primaryQuery = queryLower.split(',')[0].trim();
+  
+  // Score each result
+  const scored = results.map(r => {
+    const name = (r.name || r.destinationName || '').toLowerCase();
+    const displayName = (r.displayName || '').toLowerCase();
+    let score = 0;
+    
+    // Exact match on primary name - highest priority
+    if (name === primaryQuery) {
+      score = 100;
+    }
+    // Name starts with primary query
+    else if (name.startsWith(primaryQuery)) {
+      score = 80;
+    }
+    // Primary query starts with name (e.g., query "new york city" matches "new york")
+    else if (primaryQuery.startsWith(name)) {
+      score = 70;
+    }
+    // Name contains primary query
+    else if (name.includes(primaryQuery)) {
+      score = 50;
+    }
+    // Display name contains the full query (e.g., "Santorini, Greece")
+    else if (displayName.includes(queryLower)) {
+      score = 40;
+    }
+    
+    // Boost cities over regions/countries - we want specific results
+    if (r.type === 'CITY') score += 15;
+    else if (r.type === 'REGION') score += 5;
+    else if (r.type === 'COUNTRY') score -= 10;  // Penalize countries
+    
+    return { ...r, score };
+  });
+  
+  // Sort by score descending
+  scored.sort((a, b) => b.score - a.score);
+  
+  logger.info(`Destination matching for "${query}": ${scored.slice(0, 3).map(s => `${s.name}(${s.score})`).join(', ')}`);
+  
+  return scored[0];
 }
 
 // ==========================================================================
