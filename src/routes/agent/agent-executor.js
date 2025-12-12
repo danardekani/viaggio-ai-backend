@@ -115,14 +115,32 @@ async function executeSearchTours(input) {
       };
     }
 
-    logger.info(`Found ${tours.length} tours in ${searchDestination} (sorted by: ${sort_by})`);
+    // Check if results are mostly transfers (not actual tours)
+    const transferKeywords = ['transfer', 'chauffeur', 'airport', 'taxi', 'transportation', 'pickup', 'drop-off'];
+    const actualTours = tours.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      return !transferKeywords.some(kw => name.includes(kw));
+    });
+    
+    const onlyTransfers = actualTours.length === 0 && tours.length > 0;
+    const mostlyTransfers = actualTours.length < tours.length / 2 && actualTours.length < 3;
+
+    logger.info(`Found ${tours.length} tours in ${searchDestination} (${actualTours.length} actual tours, sorted by: ${sort_by})`);
 
     return {
       success: true,
       destination: searchDestination,
       tourCount: tours.length,
+      actualTourCount: actualTours.length,
       tours: tours,
-      sortedBy: sort_by
+      sortedBy: sort_by,
+      onlyTransfers: onlyTransfers,
+      mostlyTransfers: mostlyTransfers,
+      suggestion: onlyTransfers 
+        ? `${destination} mainly has private transfers. Consider searching for a nearby larger city for more tour options.`
+        : mostlyTransfers
+        ? `Limited tours available in ${destination}. You might find more options in a nearby larger city.`
+        : null
     };
 
   } catch (error) {
