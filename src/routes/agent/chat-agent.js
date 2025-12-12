@@ -29,8 +29,8 @@ const logger = {
 // ==========================================================================
 const ALLOWED_ORIGINS = [
   'https://viaggio-ai.vercel.app',
-  'http://localhost:5173',  // Local development
-  'http://localhost:3000'   // Local development alternative
+  'http://localhost:5173',
+  'http://localhost:3000'
 ];
 
 router.use((req, res, next) => {
@@ -50,9 +50,48 @@ router.use((req, res, next) => {
 });
 
 // Configuration
-const MAX_TOOL_ITERATIONS = 5;  // Reduced from 10 for faster responses
+const MAX_TOOL_ITERATIONS = 5;
 const MODEL = 'claude-sonnet-4-20250514';
-const REQUEST_TIMEOUT_MS = 55000;  // 55 seconds (under Railway's 60s limit)
+const REQUEST_TIMEOUT_MS = 55000;
+
+// ============================================================================
+// BUILD CONTEXT-AWARE SYSTEM PROMPT
+// ============================================================================
+
+function buildSystemPrompt(currentResults) {
+  let systemPrompt = travelAgentSystemPrompt;
+  
+  // If there are currently displayed results, add them to context
+  if (currentResults && (currentResults.tours?.length > 0 || currentResults.hotels?.length > 0)) {
+    systemPrompt += `\n\n## CURRENTLY DISPLAYED RESULTS\n`;
+    systemPrompt += `The user is viewing these search results. When they ask about "these", "which one", or reference the results, use this information:\n\n`;
+    
+    if (currentResults.tours?.length > 0) {
+      systemPrompt += `### Tours Currently Shown:\n`;
+      currentResults.tours.forEach((tour, i) => {
+        systemPrompt += `${i + 1}. "${tour.name}" - $${tour.price}, ${tour.duration}, ${tour.rating}★ (${tour.reviewCount} reviews)\n`;
+        if (tour.description) {
+          systemPrompt += `   ${tour.description.substring(0, 150)}...\n`;
+        }
+      });
+      systemPrompt += `\n`;
+    }
+    
+    if (currentResults.hotels?.length > 0) {
+      systemPrompt += `### Hotels Currently Shown:\n`;
+      currentResults.hotels.forEach((hotel, i) => {
+        systemPrompt += `${i + 1}. "${hotel.name}" - $${hotel.price}/night, ${hotel.rating}★`;
+        if (hotel.location) systemPrompt += `, ${hotel.location}`;
+        systemPrompt += `\n`;
+      });
+      systemPrompt += `\n`;
+    }
+    
+    systemPrompt += `When answering questions about these results, refer to them by name or number. Don't search again unless the user asks for different results.\n`;
+  }
+  
+  return systemPrompt;
+}
 
 // ============================================================================
 // POST /api/agent/chat - Agentic Chat Endpoint
@@ -62,7 +101,7 @@ router.post('/chat', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { messages, context = {} } = req.body;
+    const { messages, context = {}, currentResults = null } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ 
@@ -71,6 +110,13 @@ router.post('/chat', async (req, res) => {
     }
 
     logger.info(`Processing agentic chat request with ${messages.length} messages`);
+    
+    if (currentResults) {
+      logger.info(`Context includes ${currentResults.tours?.length || 0} tours, ${currentResults.hotels?.length || 0} hotels`);
+    }
+
+    // Build context-aware system prompt
+    const systemPrompt = buildSystemPrompt(currentResults);
 
     // Build conversation history for Claude
     let conversationMessages = messages.map(msg => ({
@@ -80,7 +126,7 @@ router.post('/chat', async (req, res) => {
 
     // Track tool usage for this request
     const toolsUsed = [];
-    const toursFound = [];  // Collect tour data for card display
+    const toursFound = [];
     let iterations = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -88,11 +134,8 @@ router.post('/chat', async (req, res) => {
     // =======================================================================
     // THE AGENTIC LOOP
     // =======================================================================
-    // Keep calling Claude until it gives a final text response (no tool use)
-    // =======================================================================
 
     while (iterations < MAX_TOOL_ITERATIONS) {
-      // Check if we're running out of time
       const elapsed = Date.now() - startTime;
       if (elapsed > REQUEST_TIMEOUT_MS) {
         logger.warn(`Request timing out after ${elapsed}ms`);
@@ -122,16 +165,16 @@ router.post('/chat', async (req, res) => {
       try {
         response = await anthropic.messages.create({
           model: MODEL,
-          max_tokens: 1024,  // Reduced from 4096 - encourages shorter responses
-          system: travelAgentSystemPrompt,
+          max_tokens: 1024,
+          system: systemPrompt,  // Use context-aware prompt
           tools: agentTools,
           messages: conversationMessages
         });
       } catch (apiError) {
         logger.error('Claude API error:', apiError.message);
         return res.json({
-          message: "I'm having trouble connecting to my brain right now. Could you try again in a moment?",
-          error: apiError.message,
+          message: "I'm having trouble connecting right now. Could you try again in a moment?",
+          error: true,
           toolsUsed,
           iterations
         });
@@ -141,23 +184,24 @@ router.post('/chat', async (req, res) => {
       totalInputTokens += response.usage?.input_tokens || 0;
       totalOutputTokens += response.usage?.output_tokens || 0;
 
-      // Check stop reason
-      const stopReason = response.stop_reason;
-      logger.info(`Stop reason: ${stopReason}`);
+      // Process the response
+      const contentBlocks = response.content || [];
+      
+      // Check for text response
+      const textBlock = contentBlocks.find(b => b.type === 'text');
+      
+      // Check for tool use
+      const toolUseBlocks = contentBlocks.filter(b => b.type === 'tool_use');
 
-      // Look for tool use in the response
-      const toolUseBlocks = response.content.filter(block => block.type === 'tool_use');
-      const textBlocks = response.content.filter(block => block.type === 'text');
-
-      // If no tool use, we have our final response
-      if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
-        const finalText = textBlocks.map(b => b.text).join('\n');
+      // If no tool use, we're done - return the text response
+      if (toolUseBlocks.length === 0) {
+        const finalText = textBlock?.text || "I'm not sure how to help with that. Could you tell me more?";
         
-        logger.info(`Agent complete after ${iterations} iterations, ${toolsUsed.length} tool calls, ${toursFound.length} tours found`);
-
+        logger.info(`Final response after ${iterations} iterations, ${toolsUsed.length} tools used`);
+        
         return res.json({
           message: finalText,
-          tours: toursFound,  // Include tour data for card rendering
+          tours: toursFound,
           toolsUsed,
           iterations,
           usage: {
@@ -168,57 +212,55 @@ router.post('/chat', async (req, res) => {
         });
       }
 
-      // =======================================================================
-      // TOOL EXECUTION
-      // =======================================================================
-
-      // Add Claude's response (with tool use) to conversation
-      conversationMessages.push({
-        role: 'assistant',
-        content: response.content
-      });
-
-      // Execute each tool and collect results
+      // Process tool calls
       const toolResults = [];
-
+      
       for (const toolUse of toolUseBlocks) {
         logger.info(`Executing tool: ${toolUse.name}`);
+        toolsUsed.push(toolUse.name);
         
-        // Execute the tool
-        const result = await executeTool(toolUse.name, toolUse.input);
-        
-        // Track tool usage
-        toolsUsed.push({
-          tool: toolUse.name,
-          input: toolUse.input,
-          success: !result.error
-        });
-
-        // Collect tour data for card display
-        if (toolUse.name === 'search_tours' && result.success && result.tours) {
-          toursFound.push(...result.tours);
+        try {
+          const result = await executeTool(toolUse.name, toolUse.input);
+          
+          // Collect tours for card display
+          if (result.tours && Array.isArray(result.tours)) {
+            toursFound.push(...result.tours);
+          }
+          
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify(result)
+          });
+        } catch (toolError) {
+          logger.error(`Tool ${toolUse.name} failed:`, toolError.message);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ error: toolError.message }),
+            is_error: true
+          });
         }
-
-        // Add result to collection
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: JSON.stringify(result)
-        });
       }
 
-      // Add tool results to conversation
+      // Add assistant response and tool results to conversation
+      conversationMessages.push({
+        role: 'assistant',
+        content: contentBlocks
+      });
+      
       conversationMessages.push({
         role: 'user',
         content: toolResults
       });
     }
 
-    // If we hit max iterations, return what we have
-    logger.warn(`Hit max iterations (${MAX_TOOL_ITERATIONS})`);
+    // Max iterations reached
+    logger.warn(`Max iterations (${MAX_TOOL_ITERATIONS}) reached`);
     
     return res.json({
-      message: "I've been working on this for a while. Let me summarize what I found so far. Could you try a more specific question?",
+      message: "Let me summarize what I found so far. Could you try a more specific question?",
+      tours: toursFound,
       toolsUsed,
       iterations,
       warning: 'Maximum iterations reached',
@@ -260,7 +302,7 @@ router.get('/health', (req, res) => {
 router.get('/tools', (req, res) => {
   const toolSummaries = agentTools.map(tool => ({
     name: tool.name,
-    description: tool.description.split('\n')[0], // First line only
+    description: tool.description.split('\n')[0],
     requiredParams: tool.input_schema.required || [],
     status: getToolStatus(tool.name)
   }));
@@ -270,7 +312,6 @@ router.get('/tools', (req, res) => {
   });
 });
 
-// Helper to indicate tool status
 function getToolStatus(toolName) {
   switch (toolName) {
     case 'search_tours':
