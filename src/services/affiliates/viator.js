@@ -709,6 +709,38 @@ export async function getTourDetails(productCode) {
 function formatTourResult(product) {
   const price = product.pricing?.summary?.fromPrice || 0;
 
+  // Determine pricing type - crucial for correct price display
+  // Viator uses: TRAVELLER (per person), UNIT (per group/vehicle), etc.
+  // If pricingUnit is UNIT or if it's a private tour, it's likely per-group pricing
+  const pricingUnit = product.pricing?.summary?.pricingUnit || 
+                      product.pricingInfo?.type || 
+                      'TRAVELLER'; // Default to per-person
+  
+  // Also check if tour name suggests it's a private/group tour
+  const title = (product.title || '').toLowerCase();
+  const isPrivateTour = title.includes('private') || 
+                        title.includes('per group') ||
+                        title.includes('per vehicle') ||
+                        title.includes('charter');
+  
+  // Determine if price is per person or per group
+  const isPerPerson = pricingUnit === 'TRAVELLER' || 
+                      pricingUnit === 'PER_PERSON' ||
+                      pricingUnit === 'PERSON';
+  const isPerGroup = pricingUnit === 'UNIT' || 
+                     pricingUnit === 'PER_GROUP' ||
+                     pricingUnit === 'GROUP' ||
+                     pricingUnit === 'VEHICLE' ||
+                     isPrivateTour;
+  
+  // Final pricing type: 'person' or 'group'
+  const pricingType = isPerGroup ? 'group' : 'person';
+  
+  // Get max group size if available (for per-group pricing)
+  const maxGroupSize = product.pricing?.summary?.paxRange?.max || 
+                       product.pricingInfo?.groupPricing?.maxGroupSize ||
+                       null;
+
   let duration = 'Varies';
   if (product.duration?.fixedDurationInMinutes) {
     const hours = Math.floor(product.duration.fixedDurationInMinutes / 60);
@@ -744,7 +776,12 @@ function formatTourResult(product) {
     flags: product.flags || [],
     bookingLink,
     link: bookingLink,
-    productCode
+    productCode,
+    // NEW: Pricing type information
+    pricingType,        // 'person' or 'group'
+    pricingUnit,        // Raw value from API
+    maxGroupSize,       // Max travelers for group pricing
+    isPrivateTour       // True if name suggests private tour
   };
 }
 
