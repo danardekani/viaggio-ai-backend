@@ -73,9 +73,9 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  */
 router.post('/search', async (req, res, next) => {
   try {
-    const { 
+    let { 
       destination, 
-      destinationCode,  // NEW: Accept destination code from autocomplete
+      destinationCode,  // Accept destination code from autocomplete
       checkIn,
       checkOut,
       adults = 2,
@@ -84,6 +84,11 @@ router.post('/search', async (req, res, next) => {
       currency = 'USD',
       resultCount = 20
     } = req.body;
+
+    // Fix: Handle string "null" or "undefined" from frontend
+    if (destinationCode === 'null' || destinationCode === 'undefined' || destinationCode === '') {
+      destinationCode = null;
+    }
 
     // Validate required fields
     if (!destination && !destinationCode) {
