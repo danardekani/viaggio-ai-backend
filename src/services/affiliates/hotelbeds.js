@@ -95,6 +95,28 @@ const POPULAR_DESTINATIONS = [
 // ============================================================================
 
 /**
+ * Safely get destination name - handles both API format and fallback format
+ * HotelBeds API returns: { name: { content: "New York" } }
+ * Fallback returns: { name: "New York" }
+ */
+function getDestinationName(destination) {
+  if (!destination) return '';
+  
+  // Handle HotelBeds API format: { name: { content: "..." } }
+  if (destination.name && typeof destination.name === 'object' && destination.name.content) {
+    return destination.name.content;
+  }
+  
+  // Handle simple string format (fallback destinations)
+  if (typeof destination.name === 'string') {
+    return destination.name;
+  }
+  
+  // Fallback to code if name is not available
+  return destination.code || '';
+}
+
+/**
  * Generate HotelBeds X-Signature header
  * Signature = SHA-256(ApiKey + ApiSecret + Timestamp)
  */
@@ -188,18 +210,18 @@ async function findDestination(destinationName) {
   
   // Try exact match first
   let match = destinations.find(d => 
-    d.name?.toLowerCase() === searchLower
+    getDestinationName(d).toLowerCase() === searchLower
   );
   
   // Try partial match
   if (!match) {
     match = destinations.find(d => 
-      d.name?.toLowerCase().includes(searchLower)
+      getDestinationName(d).toLowerCase().includes(searchLower)
     );
   }
   
   if (match) {
-    logger.info(`Matched destination: "${destinationName}" → ${match.name} (${match.code})`);
+    logger.info(`Matched destination: "${destinationName}" → ${getDestinationName(match)} (${match.code})`);
   }
   
   return match;
@@ -526,9 +548,12 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     
     // Score and filter destinations
     const scored = destinations
-      .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+      .filter(d => {
+        const name = getDestinationName(d);
+        return name && name.toLowerCase().includes(searchLower);
+      })
       .map(d => {
-        const nameLower = d.name.toLowerCase();
+        const nameLower = getDestinationName(d).toLowerCase();
         let score = 0;
         
         // Exact match gets highest score
@@ -538,16 +563,16 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         // Contains search term
         else score = 50;
         
-        return { ...d, score };
+        return { ...d, score, displayName: getDestinationName(d) };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
     return scored.map(d => ({
       code: d.code,
-      name: d.name,
+      name: d.displayName,
       countryCode: d.countryCode,
-      displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+      displayName: d.countryCode ? `${d.displayName}, ${d.countryCode}` : d.displayName
     }));
 
   } catch (error) {
@@ -564,9 +589,12 @@ function searchFallbackDestinations(searchTerm, limit = 8) {
   const searchLower = searchTerm.toLowerCase();
   
   const scored = POPULAR_DESTINATIONS
-    .filter(d => d.name.toLowerCase().includes(searchLower))
+    .filter(d => {
+      const name = getDestinationName(d);
+      return name && name.toLowerCase().includes(searchLower);
+    })
     .map(d => {
-      const nameLower = d.name.toLowerCase();
+      const nameLower = getDestinationName(d).toLowerCase();
       let score = 0;
       
       if (nameLower === searchLower) score = 100;
@@ -582,9 +610,9 @@ function searchFallbackDestinations(searchTerm, limit = 8) {
   
   return scored.map(d => ({
     code: d.code,
-    name: d.name,
+    name: getDestinationName(d),
     countryCode: d.countryCode,
-    displayName: `${d.name}, ${d.countryCode}`
+    displayName: `${getDestinationName(d)}, ${d.countryCode}`
   }));
 }
 
@@ -594,20 +622,26 @@ function searchFallbackDestinations(searchTerm, limit = 8) {
 export async function getDestinations() {
   try {
     const destinations = await fetchDestinations();
-    return destinations.map(d => ({
-      code: d.code,
-      name: d.name,
-      countryCode: d.countryCode,
-      displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
-    }));
+    return destinations.map(d => {
+      const name = getDestinationName(d);
+      return {
+        code: d.code,
+        name: name,
+        countryCode: d.countryCode,
+        displayName: d.countryCode ? `${name}, ${d.countryCode}` : name
+      };
+    });
   } catch (error) {
     logger.warn(`Failed to get destinations, using fallback: ${error.message}`);
-    return POPULAR_DESTINATIONS.map(d => ({
-      code: d.code,
-      name: d.name,
-      countryCode: d.countryCode,
-      displayName: `${d.name}, ${d.countryCode}`
-    }));
+    return POPULAR_DESTINATIONS.map(d => {
+      const name = getDestinationName(d);
+      return {
+        code: d.code,
+        name: name,
+        countryCode: d.countryCode,
+        displayName: `${name}, ${d.countryCode}`
+      };
+    });
   }
 }
 
