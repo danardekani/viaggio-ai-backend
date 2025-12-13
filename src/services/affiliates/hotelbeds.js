@@ -194,37 +194,60 @@ export async function fetchDestinations() {
 
 /**
  * Find destination by name (fuzzy matching)
+ * First tries API destinations, then falls back to popular destinations list
  */
 async function findDestination(destinationName) {
-  let destinations;
-  
-  try {
-    destinations = await fetchDestinations();
-  } catch (error) {
-    // API failed, try fallback destinations
-    logger.warn(`Using fallback destinations for search: ${error.message}`);
-    destinations = POPULAR_DESTINATIONS;
-  }
-  
   const searchLower = destinationName.toLowerCase().trim();
   
-  // Try exact match first
-  let match = destinations.find(d => 
-    getDestinationName(d).toLowerCase() === searchLower
-  );
-  
-  // Try partial match
-  if (!match) {
-    match = destinations.find(d => 
-      getDestinationName(d).toLowerCase().includes(searchLower)
+  // Helper function to find match in a destinations array
+  const findMatch = (destinations) => {
+    // Try exact match first
+    let match = destinations.find(d => 
+      getDestinationName(d).toLowerCase() === searchLower
     );
+    
+    // Try partial match (destination name contains search term)
+    if (!match) {
+      match = destinations.find(d => 
+        getDestinationName(d).toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Try reverse partial match (search term contains destination name)
+    if (!match) {
+      match = destinations.find(d => 
+        searchLower.includes(getDestinationName(d).toLowerCase())
+      );
+    }
+    
+    return match;
+  };
+  
+  // Try API destinations first
+  try {
+    const apiDestinations = await fetchDestinations();
+    const apiMatch = findMatch(apiDestinations);
+    
+    if (apiMatch) {
+      logger.info(`Matched destination (API): "${destinationName}" → ${getDestinationName(apiMatch)} (${apiMatch.code})`);
+      return apiMatch;
+    }
+    
+    logger.info(`No API match for "${destinationName}", checking fallback list...`);
+  } catch (error) {
+    logger.warn(`API destinations failed, using fallback: ${error.message}`);
   }
   
-  if (match) {
-    logger.info(`Matched destination: "${destinationName}" → ${getDestinationName(match)} (${match.code})`);
+  // Try fallback popular destinations
+  const fallbackMatch = findMatch(POPULAR_DESTINATIONS);
+  
+  if (fallbackMatch) {
+    logger.info(`Matched destination (fallback): "${destinationName}" → ${getDestinationName(fallbackMatch)} (${fallbackMatch.code})`);
+    return fallbackMatch;
   }
   
-  return match;
+  logger.warn(`No destination match found for: "${destinationName}"`);
+  return null;
 }
 
 // ============================================================================
