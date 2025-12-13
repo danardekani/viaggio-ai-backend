@@ -294,6 +294,7 @@ async function getHotelsByDestination(destinationCode, limit = 100) {
  */
 export async function searchHotels({
   destination,
+  destinationCode = null,  // NEW: If provided, skip destination lookup
   checkIn,
   checkOut,
   adults = 2,
@@ -305,15 +306,24 @@ export async function searchHotels({
   
   logger.info(`Hotel search: ${destination}, ${checkIn} to ${checkOut}, ${adults} adults, ${rooms} rooms`);
 
-  // STEP 1: Find the destination
-  const dest = await findDestination(destination);
+  // STEP 1: Find the destination (or use provided code)
+  let destCode = destinationCode;
   
-  if (!dest) {
-    throw new Error(`Destination not found: ${destination}`);
+  if (!destCode) {
+    const dest = await findDestination(destination);
+    
+    if (!dest) {
+      throw new Error(`Destination not found: ${destination}`);
+    }
+    
+    destCode = dest.code;
+    logger.info(`Resolved destination: "${destination}" → ${destCode}`);
+  } else {
+    logger.info(`Using provided destination code: ${destCode}`);
   }
 
   // STEP 2: Get hotel codes for this destination (Content API)
-  const destinationHotels = await getHotelsByDestination(dest.code, 150);
+  const destinationHotels = await getHotelsByDestination(destCode, 150);
   
   if (destinationHotels.length === 0) {
     logger.info(`No hotels found in destination: ${dest.name}`);
