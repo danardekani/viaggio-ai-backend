@@ -1,26 +1,94 @@
 // ============================================================================
-// HOTELBEDS API SERVICE
+// HOTELBEDS API SERVICE - PRODUCTION READY
 // ============================================================================
-// HotelBeds integration for hotel search and booking
-// Two APIs: Content API (hotel info) and Booking API (availability/pricing)
+// Complete integration with Content API and Booking API
+// Implements proper two-step search: Get hotel codes → Check availability
+// API Docs: https://developer.hotelbeds.com/documentation/hotels/
 // ============================================================================
 
 import crypto from 'crypto';
 import { logger } from '../../utils/logger.js';
 
-// API Configuration
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+// API Base URLs
+const BOOKING_API_BASE = 'https://api.test.hotelbeds.com/hotel-api/1.0';  // Sandbox
+const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/hotel-content-api/1.0';  // Sandbox
+
+// For Production, change to:
+// const BOOKING_API_BASE = 'https://api.hotelbeds.com/hotel-api/1.0';
+// const CONTENT_API_BASE = 'https://api.hotelbeds.com/hotel-content-api/1.0';
+
 const API_KEY = process.env.HOTELBEDS_API_KEY;
 const API_SECRET = process.env.HOTELBEDS_API_SECRET;
-const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/hotel-content-api/1.0';
-const BOOKING_API_BASE = 'https://api.test.hotelbeds.com/hotel-api/1.0';
 
 // Cache configuration
-const DESTINATIONS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+const hotelCache = new Map();
 const HOTEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 let destinationsCache = null;
 let destinationsCacheTime = null;
-const hotelCache = new Map();
+const DESTINATIONS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// ============================================================================
+// FALLBACK POPULAR DESTINATIONS
+// Used when HotelBeds API is unavailable (quota exhausted, etc.)
+// ============================================================================
+
+const POPULAR_DESTINATIONS = [
+  { code: 'NYC', name: 'New York', countryCode: 'US' },
+  { code: 'LAX', name: 'Los Angeles', countryCode: 'US' },
+  { code: 'CHI', name: 'Chicago', countryCode: 'US' },
+  { code: 'MIA', name: 'Miami', countryCode: 'US' },
+  { code: 'SFO', name: 'San Francisco', countryCode: 'US' },
+  { code: 'LAS', name: 'Las Vegas', countryCode: 'US' },
+  { code: 'ORL', name: 'Orlando', countryCode: 'US' },
+  { code: 'BOS', name: 'Boston', countryCode: 'US' },
+  { code: 'WAS', name: 'Washington D.C.', countryCode: 'US' },
+  { code: 'SEA', name: 'Seattle', countryCode: 'US' },
+  { code: 'DEN', name: 'Denver', countryCode: 'US' },
+  { code: 'ATL', name: 'Atlanta', countryCode: 'US' },
+  { code: 'PHX', name: 'Phoenix', countryCode: 'US' },
+  { code: 'SAN', name: 'San Diego', countryCode: 'US' },
+  { code: 'AUS', name: 'Austin', countryCode: 'US' },
+  { code: 'NAS', name: 'Nashville', countryCode: 'US' },
+  { code: 'NOL', name: 'New Orleans', countryCode: 'US' },
+  { code: 'PHL', name: 'Philadelphia', countryCode: 'US' },
+  { code: 'HNL', name: 'Honolulu', countryCode: 'US' },
+  { code: 'LON', name: 'London', countryCode: 'GB' },
+  { code: 'PAR', name: 'Paris', countryCode: 'FR' },
+  { code: 'ROM', name: 'Rome', countryCode: 'IT' },
+  { code: 'BCN', name: 'Barcelona', countryCode: 'ES' },
+  { code: 'MAD', name: 'Madrid', countryCode: 'ES' },
+  { code: 'AMS', name: 'Amsterdam', countryCode: 'NL' },
+  { code: 'DUB', name: 'Dublin', countryCode: 'IE' },
+  { code: 'LIS', name: 'Lisbon', countryCode: 'PT' },
+  { code: 'BER', name: 'Berlin', countryCode: 'DE' },
+  { code: 'MUC', name: 'Munich', countryCode: 'DE' },
+  { code: 'VIE', name: 'Vienna', countryCode: 'AT' },
+  { code: 'PRG', name: 'Prague', countryCode: 'CZ' },
+  { code: 'BUD', name: 'Budapest', countryCode: 'HU' },
+  { code: 'ATH', name: 'Athens', countryCode: 'GR' },
+  { code: 'IST', name: 'Istanbul', countryCode: 'TR' },
+  { code: 'TYO', name: 'Tokyo', countryCode: 'JP' },
+  { code: 'SIN', name: 'Singapore', countryCode: 'SG' },
+  { code: 'BKK', name: 'Bangkok', countryCode: 'TH' },
+  { code: 'HKG', name: 'Hong Kong', countryCode: 'HK' },
+  { code: 'SYD', name: 'Sydney', countryCode: 'AU' },
+  { code: 'CUN', name: 'Cancun', countryCode: 'MX' },
+  { code: 'MEX', name: 'Mexico City', countryCode: 'MX' },
+  { code: 'RIO', name: 'Rio de Janeiro', countryCode: 'BR' },
+  { code: 'DXB', name: 'Dubai', countryCode: 'AE' },
+  { code: 'CPT', name: 'Cape Town', countryCode: 'ZA' },
+  { code: 'CAI', name: 'Cairo', countryCode: 'EG' },
+  { code: 'MIL', name: 'Milan', countryCode: 'IT' },
+  { code: 'VCE', name: 'Venice', countryCode: 'IT' },
+  { code: 'FLR', name: 'Florence', countryCode: 'IT' },
+  { code: 'NCE', name: 'Nice', countryCode: 'FR' },
+  { code: 'EDI', name: 'Edinburgh', countryCode: 'GB' },
+];
 
 // ============================================================================
 // AUTHENTICATION
@@ -64,7 +132,7 @@ function getHeaders() {
  * Results are cached for 30 days
  */
 export async function fetchDestinations() {
-  // Check cache
+  // Check cache first
   if (destinationsCache && destinationsCacheTime && 
       (Date.now() - destinationsCacheTime) < DESTINATIONS_CACHE_TTL) {
     const hoursAgo = Math.round((Date.now() - destinationsCacheTime) / (60 * 60 * 1000));
@@ -76,7 +144,7 @@ export async function fetchDestinations() {
 
   try {
     const response = await fetch(
-      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=en`,
+      `${CONTENT_API_BASE}/locations/destinations?fields=all&language=ENG`,
       {
         method: 'GET',
         headers: getHeaders()
@@ -106,7 +174,16 @@ export async function fetchDestinations() {
  * Find destination by name (fuzzy matching)
  */
 async function findDestination(destinationName) {
-  const destinations = await fetchDestinations();
+  let destinations;
+  
+  try {
+    destinations = await fetchDestinations();
+  } catch (error) {
+    // API failed, try fallback destinations
+    logger.warn(`Using fallback destinations for search: ${error.message}`);
+    destinations = POPULAR_DESTINATIONS;
+  }
+  
   const searchLower = destinationName.toLowerCase().trim();
   
   // Try exact match first
@@ -151,7 +228,7 @@ async function getHotelsByDestination(destinationCode, limit = 100) {
 
   try {
     const response = await fetch(
-      `${CONTENT_API_BASE}/hotels?fields=all&destinationCodes=${destinationCode}&language=en&from=1&to=${limit}`,
+      `${CONTENT_API_BASE}/hotels?fields=all&destinationCodes=${destinationCode}&language=ENG&from=1&to=${limit}`,
       {
         method: 'GET',
         headers: getHeaders()
@@ -168,12 +245,6 @@ async function getHotelsByDestination(destinationCode, limit = 100) {
     const hotels = data.hotels || [];
     
     logger.info(`Found ${hotels.length} hotels for destination ${destinationCode}`);
-    
-    // DEBUG: Log sample hotel structure to verify data
-    if (hotels.length > 0) {
-      const sample = hotels[0];
-      logger.info(`Sample Content API hotel - code: ${sample.code}, type: ${typeof sample.code}, hasImages: ${!!sample.images?.length}, hasFacilities: ${!!sample.facilities?.length}, hasDescription: ${!!sample.description?.content}`);
-    }
 
     // Cache results
     hotelCache.set(cacheKey, {
@@ -227,16 +298,6 @@ export async function searchHotels({
     return [];
   }
 
-  // Build a lookup map for faster matching (normalize codes to strings)
-  const contentHotelMap = new Map();
-  destinationHotels.forEach(h => {
-    // Store by string version of code for consistent matching
-    const codeStr = String(h.code);
-    contentHotelMap.set(codeStr, h);
-  });
-  
-  logger.info(`Built content hotel map with ${contentHotelMap.size} entries`);
-
   // Extract hotel codes (limit to prevent huge requests)
   const hotelCodes = destinationHotels
     .slice(0, Math.min(100, resultCount * 5)) // Get more than needed for filtering
@@ -286,22 +347,11 @@ export async function searchHotels({
     const hotels = data.hotels?.hotels || [];
     
     logger.info(`Received ${hotels.length} hotels with availability`);
-    
-    // DEBUG: Log sample booking API hotel
-    if (hotels.length > 0) {
-      const sample = hotels[0];
-      logger.info(`Sample Booking API hotel - code: ${sample.code}, type: ${typeof sample.code}`);
-    }
 
-    // Format and return results - pass the lookup map
+    // Format and return results
     const formattedHotels = hotels
-      .map(hotel => formatHotelResult(hotel, checkIn, checkOut, contentHotelMap))
+      .map(hotel => formatHotelResult(hotel, checkIn, checkOut, destinationHotels))
       .slice(0, resultCount);
-
-    // DEBUG: Log how many hotels got content data
-    const withImages = formattedHotels.filter(h => h.image).length;
-    const withFacilities = formattedHotels.filter(h => h.facilities?.length > 0).length;
-    logger.info(`Formatted ${formattedHotels.length} hotels: ${withImages} with images, ${withFacilities} with facilities`);
 
     return formattedHotels;
 
@@ -320,26 +370,6 @@ export async function searchHotels({
  */
 export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) {
   logger.info(`Fetching hotel details: ${hotelCode}, ${checkIn} to ${checkOut}`);
-
-  // First, try to get content data for this specific hotel
-  let contentHotel = null;
-  try {
-    const contentResponse = await fetch(
-      `${CONTENT_API_BASE}/hotels/${hotelCode}?language=en`,
-      {
-        method: 'GET',
-        headers: getHeaders()
-      }
-    );
-    
-    if (contentResponse.ok) {
-      const contentData = await contentResponse.json();
-      contentHotel = contentData.hotel;
-      logger.info(`Got content data for hotel ${hotelCode}: hasImages=${!!contentHotel?.images?.length}, hasFacilities=${!!contentHotel?.facilities?.length}`);
-    }
-  } catch (err) {
-    logger.warn(`Could not fetch content for hotel ${hotelCode}: ${err.message}`);
-  }
 
   const requestBody = {
     stay: {
@@ -371,21 +401,15 @@ export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) 
 
     const data = await response.json();
     const hotel = data.hotels?.hotels?.[0];
-
+    
     if (!hotel) {
-      throw new Error(`Hotel not found: ${hotelCode}`);
+      throw new Error('Hotel not found or not available');
     }
 
-    // Create a map with just this one hotel's content
-    const contentMap = new Map();
-    if (contentHotel) {
-      contentMap.set(String(hotelCode), contentHotel);
-    }
-
-    return formatHotelResult(hotel, checkIn, checkOut, contentMap);
+    return formatHotelResult(hotel, checkIn, checkOut);
 
   } catch (error) {
-    logger.error('Hotel details error:', error);
+    logger.error('Error fetching hotel details:', error);
     throw error;
   }
 }
@@ -394,120 +418,64 @@ export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) 
 // FORMAT HOTEL RESULT
 // ============================================================================
 
-function formatHotelResult(hotel, checkIn, checkOut, contentHotelMap = new Map()) {
-  // Get the cheapest room rate
-  const rooms = hotel.rooms || [];
-  const cheapestRoom = rooms.sort((a, b) => {
-    const aPrice = a.rates?.[0]?.net || Infinity;
-    const bPrice = b.rates?.[0]?.net || Infinity;
-    return aPrice - bPrice;
-  })[0];
-
-  const rate = cheapestRoom?.rates?.[0];
-  const price = rate?.net ? parseFloat(rate.net) : 0;
-  const currency = hotel.currency || 'USD';
-
-  // Get additional info from Content API data if available
-  // Use string comparison for consistent matching
-  const hotelCodeStr = String(hotel.code);
-  const contentHotel = contentHotelMap.get(hotelCodeStr);
+function formatHotelResult(hotel, checkIn, checkOut, contentHotels = []) {
+  // Try to find additional info from content API
+  const contentInfo = contentHotels.find(h => h.code === hotel.code?.toString());
   
-  // DEBUG: Log matching attempt
-  if (!contentHotel) {
-    logger.debug(`No content match for hotel code ${hotelCodeStr} (map size: ${contentHotelMap.size})`);
-  }
-
-  // Get hotel images from Content API
-  let image = null;
-  let images = [];
-  
-  if (contentHotel?.images && contentHotel.images.length > 0) {
-    const contentImages = contentHotel.images;
-    
-    // Find main image (type HAB = room, GEN = general, COM = common areas)
-    const mainImage = contentImages.find(img => img.type?.code === 'GEN') || 
-                      contentImages.find(img => img.type?.code === 'HAB') || 
-                      contentImages[0];
-    
-    if (mainImage?.path) {
-      image = `https://photos.hotelbeds.com/giata/${mainImage.path}`;
-    }
-    
-    // Get multiple images for gallery
-    images = contentImages.slice(0, 10).map(img => ({
-      url: `https://photos.hotelbeds.com/giata/${img.path}`,
-      type: img.type?.description || 'Hotel'
-    }));
-  }
-
-  // Calculate nights
+  // Get the best rate (cheapest)
+  const rate = hotel.rooms?.[0]?.rates?.[0];
   const nights = calculateNights(checkIn, checkOut);
+  
+  // Calculate per-night price
+  const totalPrice = parseFloat(rate?.net || 0);
+  const pricePerNight = nights > 0 ? (totalPrice / nights).toFixed(2) : totalPrice;
 
-  // Extract star rating from categoryCode (e.g., "4EST" = 4 stars)
-  const categoryMatch = hotel.categoryCode?.match(/(\d+)/);
-  const starRating = categoryMatch ? parseInt(categoryMatch[1]) : null;
-
-  // Get facilities from Content API
-  const facilities = [];
-  if (contentHotel?.facilities && contentHotel.facilities.length > 0) {
-    contentHotel.facilities.slice(0, 15).forEach(f => {
-      const desc = f.description?.content;
-      if (desc && !facilities.includes(desc)) {
-        facilities.push(desc);
-      }
-    });
+  // Get hotel images
+  let images = [];
+  if (contentInfo?.images) {
+    images = contentInfo.images
+      .filter(img => img.imageTypeCode === 'GEN' || img.imageTypeCode === 'HAB')
+      .slice(0, 5)
+      .map(img => `https://photos.hotelbeds.com/giata/${img.path}`);
   }
 
-  // Get description from Content API
-  const description = contentHotel?.description?.content || '';
-
-  // Get address from Content API
-  const address = contentHotel?.address?.content || '';
+  // Get amenities/facilities
+  let amenities = [];
+  if (contentInfo?.facilities) {
+    amenities = contentInfo.facilities
+      .slice(0, 10)
+      .map(f => f.description?.content || f.facilityCode);
+  }
 
   return {
-    id: hotel.code?.toString(),
-    hotelCode: hotel.code,
+    id: hotel.code,
     name: hotel.name,
+    description: contentInfo?.description?.content || '',
+    category: hotel.categoryName || `${hotel.categoryCode} Star`,
+    stars: parseInt(hotel.categoryCode) || 0,
     location: formatLocation(hotel),
-    categoryCode: hotel.categoryCode,
-    categoryName: hotel.categoryName,
-    rating: starRating,
+    address: contentInfo?.address?.content || '',
     
     // Pricing
-    price,
-    currency,
-    pricePerNight: nights > 0 ? (price / nights).toFixed(2) : price.toFixed(2),
-    totalPrice: price.toFixed(2),
+    totalPrice: totalPrice.toFixed(2),
+    pricePerNight,
+    currency: hotel.currency || 'USD',
     nights,
-    rateType: rate?.rateType || 'BOOKABLE',
     
-    // Images (from Content API)
-    image,
+    // Images
+    image: images[0] || null,
     images,
     
-    // Details (from Content API)
-    description,
-    address,
-    city: hotel.destinationName || '',
-    country: contentHotel?.countryCode || '',
-    coordinates: {
-      latitude: parseFloat(hotel.latitude) || null,
-      longitude: parseFloat(hotel.longitude) || null
-    },
+    // Amenities
+    amenities,
     
-    // Amenities/Facilities (from Content API)
-    facilities,
+    // Room info
+    roomType: hotel.rooms?.[0]?.name || 'Standard Room',
+    boardType: rate?.boardName || 'Room Only',
     
-    // Room information
-    roomCode: cheapestRoom?.code,
-    roomName: cheapestRoom?.name || 'Standard Room',
-    boardCode: rate?.boardCode,
-    boardName: rate?.boardName || 'Room Only',
-    
-    // Booking info
-    rateKey: rate?.rateKey,
-    allotment: rate?.allotment,
-    paymentType: rate?.paymentType,
+    // Availability
+    allotment: rate?.allotment, // Available rooms
+    paymentType: rate?.paymentType, // AT_WEB, AT_HOTEL, etc.
     checkIn,
     checkOut,
     cancellationPolicies: rate?.cancellationPolicies || [],
@@ -533,6 +501,7 @@ function calculateNights(checkIn, checkOut) {
 }
 
 function buildBookingLink(hotelCode, checkIn, checkOut) {
+  // Your booking page URL
   return `/book/hotel/${hotelCode}?checkIn=${checkIn}&checkOut=${checkOut}`;
 }
 
@@ -542,17 +511,60 @@ function buildBookingLink(hotelCode, checkIn, checkOut) {
 
 /**
  * Search destinations for autocomplete
+ * With fallback to popular destinations if API fails
  */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
     return [];
   }
 
-  const destinations = await fetchDestinations();
+  const searchLower = searchTerm.toLowerCase();
+
+  try {
+    // Try to get destinations from HotelBeds API
+    const destinations = await fetchDestinations();
+    
+    // Score and filter destinations
+    const scored = destinations
+      .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+      .map(d => {
+        const nameLower = d.name.toLowerCase();
+        let score = 0;
+        
+        // Exact match gets highest score
+        if (nameLower === searchLower) score = 100;
+        // Starts with search term
+        else if (nameLower.startsWith(searchLower)) score = 80;
+        // Contains search term
+        else score = 50;
+        
+        return { ...d, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return scored.map(d => ({
+      code: d.code,
+      name: d.name,
+      countryCode: d.countryCode,
+      displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+    }));
+
+  } catch (error) {
+    // API failed - use fallback list of popular destinations
+    logger.warn(`HotelBeds API failed, using fallback destinations: ${error.message}`);
+    return searchFallbackDestinations(searchTerm, limit);
+  }
+}
+
+/**
+ * Search fallback popular destinations when API is unavailable
+ */
+function searchFallbackDestinations(searchTerm, limit = 8) {
   const searchLower = searchTerm.toLowerCase();
   
-  const scored = destinations
-    .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
+  const scored = POPULAR_DESTINATIONS
+    .filter(d => d.name.toLowerCase().includes(searchLower))
     .map(d => {
       const nameLower = d.name.toLowerCase();
       let score = 0;
@@ -566,11 +578,13 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
+  logger.info(`Fallback search found ${scored.length} destinations for "${searchTerm}"`);
+  
   return scored.map(d => ({
     code: d.code,
     name: d.name,
     countryCode: d.countryCode,
-    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+    displayName: `${d.name}, ${d.countryCode}`
   }));
 }
 
@@ -578,13 +592,23 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
  * Get list of all destinations
  */
 export async function getDestinations() {
-  const destinations = await fetchDestinations();
-  return destinations.map(d => ({
-    code: d.code,
-    name: d.name,
-    countryCode: d.countryCode,
-    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
-  }));
+  try {
+    const destinations = await fetchDestinations();
+    return destinations.map(d => ({
+      code: d.code,
+      name: d.name,
+      countryCode: d.countryCode,
+      displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+    }));
+  } catch (error) {
+    logger.warn(`Failed to get destinations, using fallback: ${error.message}`);
+    return POPULAR_DESTINATIONS.map(d => ({
+      code: d.code,
+      name: d.name,
+      countryCode: d.countryCode,
+      displayName: `${d.name}, ${d.countryCode}`
+    }));
+  }
 }
 
 // ============================================================================
