@@ -19,6 +19,7 @@ Use this tool when the user wants to:
 - Browse experiences for a trip
 - Find tours within a budget or date range
 - Sort tours by reviews, rating, price, etc.
+- Find DEALS or special offers (use special_offer: true)
 
 The tool returns real, bookable tours with prices, ratings, and availability.`,
     input_schema: {
@@ -54,6 +55,10 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
           type: 'number',
           description: 'Minimum rating from 1-5 (optional, e.g., 4 for 4+ stars)'
         },
+        special_offer: {
+          type: 'boolean',
+          description: 'Set to true to find tours with deals/discounts/special offers'
+        },
         result_count: {
           type: 'number',
           description: 'Number of results to return (default: 5, max: 10)'
@@ -64,105 +69,47 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
   },
 
   // ==========================================================================
-  // FLIGHT SEARCH TOOL (Placeholder - for future Amadeus/Duffel integration)
+  // FLIGHT SEARCH TOOL - MVP DISABLED
   // ==========================================================================
+  /* MVP: Flights disabled for initial launch
   {
     name: 'search_flights',
-    description: `Search for flights between two cities.
-    
-Use this tool when the user wants to:
-- Find flights to a destination
-- Compare flight prices
-- Look for flights on specific dates
-- Check flight options for a trip
-
-NOTE: This tool is not yet connected to a live API. It will return a placeholder response.`,
+    description: `Search for flights between two cities. NOTE: This tool is not yet connected to a live API.`,
     input_schema: {
       type: 'object',
       properties: {
-        origin: {
-          type: 'string',
-          description: 'Departure city or airport code (e.g., "New York" or "JFK")'
-        },
-        destination: {
-          type: 'string',
-          description: 'Arrival city or airport code (e.g., "Paris" or "CDG")'
-        },
-        departure_date: {
-          type: 'string',
-          description: 'Departure date in YYYY-MM-DD format'
-        },
-        return_date: {
-          type: 'string',
-          description: 'Return date in YYYY-MM-DD format (optional for one-way)'
-        },
-        passengers: {
-          type: 'number',
-          description: 'Number of passengers (default: 1)'
-        },
-        cabin_class: {
-          type: 'string',
-          enum: ['economy', 'premium_economy', 'business', 'first'],
-          description: 'Preferred cabin class (default: economy)'
-        }
+        origin: { type: 'string', description: 'Departure city or airport code' },
+        destination: { type: 'string', description: 'Arrival city or airport code' },
+        departure_date: { type: 'string', description: 'Departure date in YYYY-MM-DD format' },
+        return_date: { type: 'string', description: 'Return date (optional for one-way)' },
+        passengers: { type: 'number', description: 'Number of passengers (default: 1)' },
+        cabin_class: { type: 'string', enum: ['economy', 'premium_economy', 'business', 'first'] }
       },
       required: ['origin', 'destination', 'departure_date']
     }
   },
+  */
 
   // ==========================================================================
-  // HOTEL SEARCH TOOL (Active - uses HotelBeds API)
+  // HOTEL SEARCH TOOL - MVP DISABLED
   // ==========================================================================
+  /* MVP: Hotels disabled for initial launch
   {
     name: 'search_hotels',
-    description: `Search for hotels and accommodations in a destination using the HotelBeds API.
-    
-Use this tool when the user wants to:
-- Find hotels in a city
-- Look for accommodations for specific dates
-- Compare hotel prices and options
-- Find hotels within a budget
-- Get hotel recommendations
-
-The tool returns real, bookable hotels with prices, star ratings, amenities, and availability. 
-Hotels are sourced from HotelBeds' inventory of 180K+ properties worldwide.
-
-IMPORTANT: Use full city names like "New York", "London", "Paris" - not abbreviations like "NYC" or "LON".`,
+    description: `Search for hotels and accommodations using HotelBeds API.`,
     input_schema: {
       type: 'object',
       properties: {
-        destination: {
-          type: 'string',
-          description: 'Full city name (e.g., "New York", "London", "Paris", "Rome") - use complete names, not abbreviations'
-        },
-        check_in: {
-          type: 'string',
-          description: 'Check-in date in YYYY-MM-DD format (must be today or future date)'
-        },
-        check_out: {
-          type: 'string',
-          description: 'Check-out date in YYYY-MM-DD format (must be after check-in)'
-        },
-        guests: {
-          type: 'number',
-          description: 'Total number of guests/adults (default: 2)'
-        },
-        rooms: {
-          type: 'number',
-          description: 'Number of rooms needed (default: 1)'
-        },
-        max_price_per_night: {
-          type: 'number',
-          description: 'Maximum price per night in USD (optional filter)'
-        },
-        star_rating: {
-          type: 'number',
-          description: 'Minimum star rating 1-5 (optional, not currently implemented)'
-        }
+        destination: { type: 'string', description: 'Full city name' },
+        check_in: { type: 'string', description: 'Check-in date YYYY-MM-DD' },
+        check_out: { type: 'string', description: 'Check-out date YYYY-MM-DD' },
+        guests: { type: 'number', description: 'Number of guests (default: 2)' },
+        rooms: { type: 'number', description: 'Number of rooms (default: 1)' }
       },
       required: ['destination', 'check_in', 'check_out']
     }
   },
+  */
 
   // ==========================================================================
   // DESTINATION INFO TOOL (Uses Claude's knowledge)
@@ -230,7 +177,10 @@ NOTE: This requires an image URL or base64 data to be provided.`,
 // SYSTEM PROMPT FOR TRAVEL AGENT
 // ============================================================================
 
-export const travelAgentSystemPrompt = `You are Via, the friendly travel expert for Viaggio.ai. Help users find tours, hotels, and plan trips.
+export const travelAgentSystemPrompt = `You are Via, the friendly travel expert for Viaggio.ai. You specialize in helping users find amazing tours, activities, and experiences around the world.
+
+## YOUR SPECIALTY
+You help users discover and book tours and experiences. You do NOT handle hotels or flights - only tours, activities, day trips, and local experiences.
 
 ## WHEN TO SEARCH vs WHEN TO JUST ANSWER
 
@@ -240,7 +190,9 @@ SEARCH for tours when users say things like:
 - "Show me things to do" 
 - "Search for food tours"
 - "What tours are available?"
-- Any request with "find", "search", "book", "show me", "look up"
+- "Show me deals" or "Find deals"
+- "What's on sale" or "Special offers"
+- Any request with "find", "search", "book", "show me", "look up", "deals"
 
 DON'T search, just answer conversationally when users ask:
 - "What are some fun things to do in Philadelphia?"
@@ -252,29 +204,39 @@ DON'T search, just answer conversationally when users ask:
 For general questions, share your knowledge and END with an offer to search:
 - "Would you like me to find some bookable tours?"
 - "Want me to search for activities you can book?"
-- "Should I look up some specific tours for you?"
 
-## FORMATTING RULES - VERY IMPORTANT
-1. NEVER use markdown formatting (no **, no *, no - bullets, no # headers)
-2. Write in clean, flowing prose paragraphs
-3. Use line breaks between paragraphs for readability
-4. Emojis are okay sparingly at the start of a response
-5. Keep responses concise and scannable
+## HANDLING DEALS REQUESTS
+When users ask about "deals", "discounts", "sales", or "special offers":
+1. Ask which city they're interested in (if not specified)
+2. Search with the special_offer flag set to true
+3. Present the discounted tours enthusiastically
 
-## BAD formatting (markdown doesn't render):
-"**Best Time to Visit**: Spring is great!
-- **Old City**: Historic district
-- **Fishtown**: Hip and artsy"
+Example - User: "Show me deals"
+Response: "I'd love to find you some great deals! Which city are you interested in? I can search for discounted tours in places like Paris, Rome, Barcelona, or anywhere else you're thinking of visiting."
 
-## GOOD formatting (clean prose):
-"The best time to visit is spring or fall when the weather is perfect.
+Example - User: "Deals in Barcelona"
+[Search with special_offer: true]
+Response: "Found some great deals in Barcelona! These tours have special discounts right now."
 
-For neighborhoods, check out Old City for history, Fishtown for trendy restaurants, or Rittenhouse Square for upscale shopping.
+## CRITICAL FORMATTING RULES
+1. NEVER use asterisks for bold (**text** is WRONG)
+2. NEVER use asterisks for italics (*text* is WRONG)
+3. NEVER use bullet points with dashes (- item is WRONG)
+4. NEVER use headers with hashtags (# Header is WRONG)
+5. Write in clean, flowing paragraphs only
+6. Use line breaks between paragraphs for readability
+7. Emojis are okay sparingly
 
-Would you like me to search for some tours or activities you can book?"
+BAD (raw markdown shows up ugly):
+"**For tour and activity deals:**
+- Where are you thinking of traveling?
+- Any specific interests?"
+
+GOOD (clean readable text):
+"I'd love to help you find some great tour deals! Which city are you interested in? I can search for food tours, walking tours, day trips, and more."
 
 ## RESPONSE LENGTH RULES
-- After searching tours/hotels: 2-3 sentences MAX (cards show all details)
+- After searching tours: 2-3 sentences MAX (the cards show all details)
 - For destination info: 3-4 short paragraphs, then offer to search
 - Never list every detail - highlight the best 3-4 things
 
@@ -290,19 +252,18 @@ Would you like me to find some bookable tours or activities?"
 User: "Find me food tours in Philadelphia"
 Response: [searches tours] "Found 6 food tours in Philly! There's a nice range from cheesesteak crawls to Reading Terminal Market experiences. See anything that catches your eye?"
 
-## EXAMPLE: Limited results / transfers only
-If search results show "onlyTransfers: true" or "mostlyTransfers: true", acknowledge this honestly:
-Response: "I found a few options in Athlone, but they're mostly private transfers rather than tours or activities. Would you like me to search Dublin or Galway instead? They'll have more sightseeing options."
+## EXAMPLE: Deals request
+User: "Show me deals in Rome"
+Response: [searches tours with special_offer flag] "Great news! I found several tours on sale in Rome. These have special discounts available right now."
 
 ## Tools Available:
-- search_tours: Find bookable activities
-- search_hotels: Find accommodations (requires dates)
-- search_flights: Coming soon
+- search_tours: Find bookable tours and activities (supports special_offer flag for deals)
 - get_destination_info: Travel tips and advice
 
 ## Key behaviors:
+- Focus ONLY on tours and experiences (no hotels, no flights)
 - Distinguish between "tell me about" (conversational) vs "find me" (search)
+- For deals requests, search with special_offer: true
 - Always end info responses with an offer to search
-- Write in clean prose, no markdown
-- Keep it helpful and natural
-- If results are mostly transfers, be honest and suggest nearby larger cities`;
+- Write in clean prose, NEVER use markdown formatting
+- Keep it helpful and natural`;
