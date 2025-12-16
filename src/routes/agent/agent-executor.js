@@ -6,7 +6,8 @@
 // ============================================================================
 
 import { searchTours, searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
-import { searchHotels } from '../../services/affiliates/hotelbeds.js';
+// MVP: Hotels disabled for initial launch
+// import { searchHotels } from '../../services/affiliates/hotelbeds.js';
 import { identifyLocation } from '../../services/vision.js';
 
 // Simple logger (console-based)
@@ -69,10 +70,11 @@ async function executeSearchTours(input) {
     end_date,
     max_price,
     min_rating,
+    special_offer = false,
     result_count = 5
   } = input;
 
-  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date });
+  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date, special_offer });
 
   try {
     // Step 1: Use Viator's autocomplete to find the best matching destination
@@ -93,6 +95,13 @@ async function executeSearchTours(input) {
       logger.warn(`Autocomplete failed, using original destination: ${autoError.message}`);
     }
 
+    // Build flags array
+    const flags = [];
+    if (special_offer) {
+      flags.push('SPECIAL_OFFER');
+      logger.info(`Including SPECIAL_OFFER flag for deals search`);
+    }
+
     // Step 2: Search for tours using the matched destination
     const tours = await searchTours({
       destination: searchDestination,
@@ -103,6 +112,7 @@ async function executeSearchTours(input) {
       endDate: end_date,
       maxPrice: max_price,
       minRating: min_rating,
+      flags: flags.length > 0 ? flags : undefined,
       resultCount: Math.min(result_count, 10)
     });
 
@@ -211,132 +221,39 @@ function findBestDestinationMatch(query, results) {
 }
 
 // ==========================================================================
-// SEARCH FLIGHTS - Placeholder for future Amadeus/Duffel integration
+// SEARCH FLIGHTS - MVP DISABLED
 // ==========================================================================
 
 async function executeSearchFlights(input) {
-  const { origin, destination, departure_date, return_date, passengers = 1 } = input;
+  const { origin, destination } = input;
 
-  logger.info(`Flight search requested: ${origin} → ${destination}`, { departure_date, return_date });
+  logger.info(`Flight search requested but MVP disabled: ${origin} → ${destination}`);
 
-  // Return a helpful placeholder response
+  // Return MVP message - flights not yet available
   return {
     success: false,
     available: false,
-    message: 'Flight search is coming soon to Viaggio!',
-    searchedFor: {
-      origin,
-      destination,
-      departure_date,
-      return_date,
-      passengers
-    },
-    suggestion: `For now, I recommend checking Google Flights or Skyscanner for flights from ${origin} to ${destination}. Once you have flight preferences, I can help you find hotels and tours that match your schedule!`,
-    workaround: {
-      googleFlights: `https://www.google.com/travel/flights?q=flights%20from%20${encodeURIComponent(origin)}%20to%20${encodeURIComponent(destination)}`,
-      skyscanner: `https://www.skyscanner.com/transport/flights/${encodeURIComponent(origin)}/${encodeURIComponent(destination)}/`
-    }
+    message: 'I specialize in tours and experiences! Flight booking is coming soon. For now, I can help you find amazing tours and activities at your destination.',
+    suggestion: `Would you like me to search for tours in ${destination} instead?`
   };
 }
 
 // ==========================================================================
-// SEARCH HOTELS - Connected to HotelBeds API
+// SEARCH HOTELS - MVP DISABLED
 // ==========================================================================
 
 async function executeSearchHotels(input) {
-  const { 
-    destination, 
-    check_in, 
-    check_out, 
-    guests = 2, 
-    rooms = 1, 
-    max_price_per_night 
-  } = input;
+  const { destination } = input;
 
-  logger.info(`Hotel search: ${destination}`, { check_in, check_out, guests, rooms });
+  logger.info(`Hotel search requested but MVP disabled: ${destination}`);
 
-  try {
-    // Call the HotelBeds API
-    const hotels = await searchHotels({
-      destination,
-      checkIn: check_in,
-      checkOut: check_out,
-      adults: guests,
-      children: 0,
-      rooms,
-      currency: 'USD',
-      resultCount: 10
-    });
-
-    // Filter by price if specified
-    let filteredHotels = hotels;
-    if (max_price_per_night) {
-      filteredHotels = hotels.filter(h => {
-        const pricePerNight = parseFloat(h.pricePerNight);
-        return pricePerNight <= max_price_per_night;
-      });
-    }
-
-    if (!filteredHotels || filteredHotels.length === 0) {
-      return {
-        success: true,
-        hotels: [],
-        message: `No hotels found in ${destination} for those dates matching your criteria.`,
-        suggestion: 'Try different dates or adjusting your budget.',
-        searchedFor: {
-          destination,
-          check_in,
-          check_out,
-          guests,
-          rooms
-        }
-      };
-    }
-
-    logger.info(`Found ${filteredHotels.length} hotels in ${destination}`);
-
-    return {
-      success: true,
-      destination,
-      hotelCount: filteredHotels.length,
-      hotels: filteredHotels,
-      searchedFor: {
-        destination,
-        check_in,
-        check_out,
-        guests,
-        rooms
-      }
-    };
-
-  } catch (error) {
-    logger.error('Hotel search failed:', error.message);
-    
-    // If it's a destination not found error, be helpful
-    if (error.message.includes('Destination not found')) {
-      return {
-        error: true,
-        message: `I couldn't find "${destination}" in our hotel database. Could you try a different city name? For example, try "New York" instead of "NYC".`,
-        suggestion: 'Try using the full city name, like "New York", "London", or "Paris".',
-        searchedFor: {
-          destination,
-          check_in,
-          check_out
-        }
-      };
-    }
-
-    return {
-      error: true,
-      message: `Unable to search hotels: ${error.message}`,
-      suggestion: 'Please try again or try a different destination.',
-      searchedFor: {
-        destination,
-        check_in,
-        check_out
-      }
-    };
-  }
+  // Return MVP message - hotels not yet available
+  return {
+    success: false,
+    available: false,
+    message: 'I specialize in tours and experiences! Hotel booking is coming soon. For now, I can help you find amazing tours and activities at your destination.',
+    suggestion: `Would you like me to search for tours in ${destination} instead?`
+  };
 }
 
 // ==========================================================================
