@@ -194,7 +194,8 @@ export async function fetchDestinations() {
 
 /**
  * Find destination by name (fuzzy matching)
- * First tries API destinations, then falls back to popular destinations list
+ * ONLY returns destinations with valid HotelBeds codes (from API)
+ * Fallback list is only for autocomplete suggestions, NOT for code lookup
  */
 async function findDestination(destinationName) {
   const searchLower = destinationName.toLowerCase().trim();
@@ -223,7 +224,7 @@ async function findDestination(destinationName) {
     return match;
   };
   
-  // Try API destinations first
+  // Search API destinations ONLY (these have valid HotelBeds codes)
   try {
     const apiDestinations = await fetchDestinations();
     const apiMatch = findMatch(apiDestinations);
@@ -233,21 +234,14 @@ async function findDestination(destinationName) {
       return apiMatch;
     }
     
-    logger.info(`No API match for "${destinationName}", checking fallback list...`);
+    // No API match found - DO NOT use fallback codes as they're not valid for HotelBeds
+    logger.warn(`No HotelBeds destination found for: "${destinationName}". The HotelBeds sandbox has limited destinations (mostly European cities).`);
+    return null;
+    
   } catch (error) {
-    logger.warn(`API destinations failed, using fallback: ${error.message}`);
+    logger.error(`Failed to search destinations: ${error.message}`);
+    return null;
   }
-  
-  // Try fallback popular destinations
-  const fallbackMatch = findMatch(POPULAR_DESTINATIONS);
-  
-  if (fallbackMatch) {
-    logger.info(`Matched destination (fallback): "${destinationName}" → ${getDestinationName(fallbackMatch)} (${fallbackMatch.code})`);
-    return fallbackMatch;
-  }
-  
-  logger.warn(`No destination match found for: "${destinationName}"`);
-  return null;
 }
 
 // ============================================================================
@@ -349,7 +343,7 @@ export async function searchHotels({
   const destinationHotels = await getHotelsByDestination(destCode, 150);
   
   if (destinationHotels.length === 0) {
-    logger.info(`No hotels found in destination: ${dest.name}`);
+    logger.info(`No hotels found in destination: ${destCode}`);
     return [];
   }
 
@@ -567,6 +561,7 @@ function buildBookingLink(hotelCode, checkIn, checkOut) {
 /**
  * Search destinations for autocomplete
  * Searches BOTH API destinations AND fallback popular destinations for best coverage
+ * IMPORTANT: Only API destinations have valid HotelBeds codes!
  */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
@@ -576,7 +571,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   const searchLower = searchTerm.toLowerCase();
   
   // Helper to score and filter destinations
-  const scoreDestinations = (destinations) => {
+  const scoreDestinations = (destinations, isFromAPI = false) => {
     return destinations
       .filter(d => {
         const name = getDestinationName(d);
@@ -595,43 +590,46 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         else score = 50;
         
         return { 
-          code: d.code, 
+          code: isFromAPI ? d.code : null,  // Only use code if from API!
           name: name,
           countryCode: d.countryCode,
-          score 
+          score,
+          isFromAPI
         };
       });
   };
 
-  // Always search fallback destinations first (most popular cities)
-  const fallbackResults = scoreDestinations(POPULAR_DESTINATIONS);
-  
-  // Try API destinations as well
+  // Try API destinations first (these have VALID HotelBeds codes)
   let apiResults = [];
   try {
     const apiDestinations = await fetchDestinations();
-    apiResults = scoreDestinations(apiDestinations);
+    apiResults = scoreDestinations(apiDestinations, true);
   } catch (error) {
     logger.warn(`HotelBeds API failed for autocomplete: ${error.message}`);
   }
 
-  // Combine results, preferring fallback for duplicates (better known codes)
-  const seenCodes = new Set();
+  // Also search fallback destinations (popular cities, but codes are NOT valid for HotelBeds)
+  const fallbackResults = scoreDestinations(POPULAR_DESTINATIONS, false);
+
+  // Combine results, preferring API results (they have valid codes)
+  const seenNames = new Set();
   const combined = [];
   
-  // Add fallback results first (higher priority for popular destinations)
-  for (const result of fallbackResults) {
-    if (!seenCodes.has(result.code)) {
-      seenCodes.add(result.code);
-      combined.push({ ...result, score: result.score + 10 }); // Boost popular destinations
+  // Add API results first (they have valid HotelBeds codes)
+  for (const result of apiResults) {
+    const key = result.name.toLowerCase();
+    if (!seenNames.has(key)) {
+      seenNames.add(key);
+      combined.push({ ...result, score: result.score + 20 }); // Boost API results
     }
   }
   
-  // Add API results that aren't duplicates
-  for (const result of apiResults) {
-    if (!seenCodes.has(result.code)) {
-      seenCodes.add(result.code);
-      combined.push(result);
+  // Add fallback results that aren't duplicates (these DON'T have valid codes)
+  for (const result of fallbackResults) {
+    const key = result.name.toLowerCase();
+    if (!seenNames.has(key)) {
+      seenNames.add(key);
+      combined.push({ ...result, score: result.score + 10 }); // Slight boost for popular
     }
   }
 
@@ -640,10 +638,10 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  logger.info(`Autocomplete "${searchTerm}": found ${sorted.length} matches (${fallbackResults.length} fallback, ${apiResults.length} API)`);
+  logger.info(`Autocomplete "${searchTerm}": found ${sorted.length} matches (${apiResults.length} API, ${fallbackResults.length} fallback)`);
 
   return sorted.map(d => ({
-    code: d.code,
+    code: d.code,  // Will be null for fallback results
     name: d.name,
     countryCode: d.countryCode,
     displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
