@@ -183,7 +183,10 @@ export async function fetchDestinations() {
     destinationsCache = data.destinations || [];
     destinationsCacheTime = Date.now();
 
-    logger.info(`Cached ${destinationsCache.length} destinations`);
+    // Log sample destinations to help debug
+    const sampleNames = destinationsCache.slice(0, 15).map(d => getDestinationName(d));
+    logger.info(`Cached ${destinationsCache.length} destinations. Sample: ${sampleNames.join(', ')}`);
+    
     return destinationsCache;
 
   } catch (error) {
@@ -191,6 +194,27 @@ export async function fetchDestinations() {
     throw error;
   }
 }
+
+// Common English city names to local names mapping
+const CITY_NAME_ALIASES = {
+  'lisbon': ['lisboa'],
+  'munich': ['münchen', 'munchen'],
+  'rome': ['roma'],
+  'florence': ['firenze'],
+  'venice': ['venezia'],
+  'milan': ['milano'],
+  'naples': ['napoli'],
+  'cologne': ['köln', 'koln'],
+  'vienna': ['wien'],
+  'prague': ['praha'],
+  'warsaw': ['warszawa'],
+  'athens': ['athina', 'αθήνα'],
+  'moscow': ['moskva', 'москва'],
+  'brussels': ['bruxelles', 'brussel'],
+  'copenhagen': ['københavn', 'kobenhavn'],
+  'geneva': ['genève', 'geneve'],
+  'zurich': ['zürich'],
+};
 
 /**
  * Find destination by name (fuzzy matching)
@@ -200,28 +224,33 @@ export async function fetchDestinations() {
 async function findDestination(destinationName) {
   const searchLower = destinationName.toLowerCase().trim();
   
+  // Get alternative names if this is a common English name
+  const alternativeNames = CITY_NAME_ALIASES[searchLower] || [];
+  const searchTerms = [searchLower, ...alternativeNames];
+  
   // Helper function to find match in a destinations array
   const findMatch = (destinations) => {
-    // Try exact match first
-    let match = destinations.find(d => 
-      getDestinationName(d).toLowerCase() === searchLower
-    );
-    
-    // Try partial match (destination name contains search term)
-    if (!match) {
-      match = destinations.find(d => 
-        getDestinationName(d).toLowerCase().includes(searchLower)
+    for (const term of searchTerms) {
+      // Try exact match first
+      let match = destinations.find(d => 
+        getDestinationName(d).toLowerCase() === term
       );
+      if (match) return match;
+      
+      // Try partial match (destination name contains search term)
+      match = destinations.find(d => 
+        getDestinationName(d).toLowerCase().includes(term)
+      );
+      if (match) return match;
+      
+      // Try reverse partial match (search term contains destination name)
+      match = destinations.find(d => 
+        term.includes(getDestinationName(d).toLowerCase())
+      );
+      if (match) return match;
     }
     
-    // Try reverse partial match (search term contains destination name)
-    if (!match) {
-      match = destinations.find(d => 
-        searchLower.includes(getDestinationName(d).toLowerCase())
-      );
-    }
-    
-    return match;
+    return null;
   };
   
   // Search API destinations ONLY (these have valid HotelBeds codes)
@@ -570,24 +599,35 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 
   const searchLower = searchTerm.toLowerCase();
   
+  // Get alternative names if this is a common English name
+  const alternativeNames = CITY_NAME_ALIASES[searchLower] || [];
+  const searchTerms = [searchLower, ...alternativeNames];
+  
   // Helper to score and filter destinations
   const scoreDestinations = (destinations, isFromAPI = false) => {
     return destinations
       .filter(d => {
         const name = getDestinationName(d);
-        return name && name.toLowerCase().includes(searchLower);
+        if (!name) return false;
+        const nameLower = name.toLowerCase();
+        // Check if any search term matches
+        return searchTerms.some(term => nameLower.includes(term));
       })
       .map(d => {
         const name = getDestinationName(d);
         const nameLower = name.toLowerCase();
         let score = 0;
         
-        // Exact match gets highest score
-        if (nameLower === searchLower) score = 100;
-        // Starts with search term
-        else if (nameLower.startsWith(searchLower)) score = 80;
-        // Contains search term
-        else score = 50;
+        // Score based on best matching search term
+        for (const term of searchTerms) {
+          if (nameLower === term) {
+            score = Math.max(score, 100);
+          } else if (nameLower.startsWith(term)) {
+            score = Math.max(score, 80);
+          } else if (nameLower.includes(term)) {
+            score = Math.max(score, 50);
+          }
+        }
         
         return { 
           code: isFromAPI ? d.code : null,  // Only use code if from API!
