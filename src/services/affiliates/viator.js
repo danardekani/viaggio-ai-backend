@@ -842,58 +842,128 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     const allDestinations = await fetchDestinations();
     const destMap = new Map(allDestinations.map(d => [d.destinationId, d]));
     
-    const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
-      method: 'POST',
-      headers: {
-        'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
-        'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        searchTerm: searchTerm,
-        searchTypes: [
-          {
-            searchType: 'DESTINATIONS',
-            pagination: {
-              start: 1,
-              count: limit
-            }
-          }
-        ],
-        currency: 'USD'
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(`Viator freetext API error: ${response.status} - ${errorText}`);
-      return fallbackDestinationSearch(searchTerm, limit);
-    }
-
-    const data = await response.json();
-    const destinations = data.destinations?.results || [];
+    // Strategy: Combine Viator freetext API with local cache search
+    // This ensures we find multiple cities with the same name (Paris, France vs Paris, Texas)
     
-    const results = destinations.map(d => {
-      const destId = d.id || d.destinationId;
-      const cachedDest = destMap.get(destId);
-      const destType = cachedDest?.type || 'DESTINATION';
-      const name = d.name || d.destinationName;
-      
-      // Build a user-friendly display name based on type
-      const displayName = buildDisplayName(name, destId, destType, destMap);
-      
-      return {
-        destinationId: destId?.toString(),
-        name: name,
-        type: destType,
-        parentName: d.parentDestinationName || null,
-        displayName: displayName
-      };
-    });
+    let apiResults = [];
+    
+    // Try the Viator freetext API first
+    try {
+      const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
+        method: 'POST',
+        headers: {
+          'exp-api-key': API_KEY,
+          'Accept': 'application/json;version=2.0',
+          'Accept-Language': 'en-US',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          searchTerm: searchTerm,
+          searchTypes: [
+            {
+              searchType: 'DESTINATIONS',
+              pagination: {
+                start: 1,
+                count: limit
+              }
+            }
+          ],
+          currency: 'USD'
+        })
+      });
 
-    logger.info(`Autocomplete found ${results.length} destinations for "${searchTerm}"`);
-    return results;
+      if (response.ok) {
+        const data = await response.json();
+        const destinations = data.destinations?.results || [];
+        
+        apiResults = destinations.map(d => {
+          const destId = d.id || d.destinationId;
+          const cachedDest = destMap.get(destId);
+          const destType = cachedDest?.type || 'DESTINATION';
+          const name = d.name || d.destinationName;
+          const displayName = buildDisplayName(name, destId, destType, destMap);
+          
+          return {
+            destinationId: destId?.toString(),
+            name: name,
+            type: destType,
+            parentName: d.parentDestinationName || null,
+            displayName: displayName,
+            source: 'api'
+          };
+        });
+      }
+    } catch (apiError) {
+      logger.warn(`Freetext API failed, will use cache only: ${apiError.message}`);
+    }
+    
+    // Also search local cache for additional matches
+    // This catches cities the API might miss (like Paris, Texas)
+    const searchLower = searchTerm.toLowerCase();
+    
+    const cacheResults = allDestinations
+      .filter(d => {
+        if (!d.name) return false;
+        const nameLower = d.name.toLowerCase();
+        // Match if name starts with search term or equals it exactly
+        return nameLower.startsWith(searchLower) || nameLower === searchLower;
+      })
+      .map(d => {
+        const nameLower = d.name.toLowerCase();
+        let score = 0;
+        
+        // Exact match gets highest score
+        if (nameLower === searchLower) score = 100;
+        // Starts with search term
+        else if (nameLower.startsWith(searchLower)) score = 80;
+        
+        // Boost cities over regions/countries
+        if (d.type === 'CITY') score += 15;
+        else if (d.type === 'REGION') score += 5;
+        
+        return { ...d, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit * 2) // Get extra for deduplication
+      .map(d => {
+        const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
+        
+        return {
+          destinationId: d.destinationId?.toString(),
+          name: d.name,
+          type: d.type || 'CITY',
+          parentName: null,
+          displayName: displayName,
+          source: 'cache'
+        };
+      });
+    
+    // Merge and deduplicate results
+    // Prefer API results, then add unique cache results
+    const seenIds = new Set();
+    const mergedResults = [];
+    
+    // Add API results first (higher quality matching)
+    for (const result of apiResults) {
+      if (!seenIds.has(result.destinationId)) {
+        seenIds.add(result.destinationId);
+        mergedResults.push(result);
+      }
+    }
+    
+    // Add cache results that weren't in API results
+    for (const result of cacheResults) {
+      if (!seenIds.has(result.destinationId) && mergedResults.length < limit) {
+        seenIds.add(result.destinationId);
+        mergedResults.push(result);
+      }
+    }
+    
+    // Remove the source field before returning
+    const finalResults = mergedResults.slice(0, limit).map(({ source, ...rest }) => rest);
+
+    logger.info(`Autocomplete found ${finalResults.length} destinations for "${searchTerm}" (API: ${apiResults.length}, Cache: ${cacheResults.length})`);
+    return finalResults;
 
   } catch (error) {
     logger.error('Autocomplete search error:', error);
