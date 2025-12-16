@@ -72,9 +72,11 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  * }
  */
 router.post('/search', async (req, res, next) => {
+  // Declare destination at function scope so it's accessible in catch block
+  let destination = req.body.destination;
+  
   try {
     let { 
-      destination, 
       destinationCode,  // Accept destination code from autocomplete
       checkIn,
       checkOut,
@@ -90,8 +92,14 @@ router.post('/search', async (req, res, next) => {
       destinationCode = null;
     }
 
+    // Extract just the city name if destination includes country code (e.g., "Lisbon, PT" → "Lisbon")
+    let searchDestination = destination;
+    if (destination && destination.includes(',')) {
+      searchDestination = destination.split(',')[0].trim();
+    }
+
     // Validate required fields
-    if (!destination && !destinationCode) {
+    if (!searchDestination && !destinationCode) {
       return res.status(400).json({ 
         error: 'Missing required field: destination or destinationCode'
       });
@@ -141,10 +149,10 @@ router.post('/search', async (req, res, next) => {
       });
     }
 
-    logger.info(`Hotel search: dest="${destination}", code="${destinationCode}", ${finalCheckIn} to ${finalCheckOut}, ${adults} adults, ${rooms} rooms`);
+    logger.info(`Hotel search: dest="${destination}", searchDest="${searchDestination}", code="${destinationCode}", ${finalCheckIn} to ${finalCheckOut}, ${adults} adults, ${rooms} rooms`);
 
     const hotels = await searchHotels({
-      destination,
+      destination: searchDestination,  // Use extracted city name for search
       destinationCode,  // Pass the destination code
       checkIn: finalCheckIn,
       checkOut: finalCheckOut,
@@ -160,7 +168,7 @@ router.post('/search', async (req, res, next) => {
     res.json({ 
       hotels,
       searchParams: { 
-        destination, 
+        destination,  // Keep original for display
         destinationCode,
         checkIn: finalCheckIn,
         checkOut: finalCheckOut,
