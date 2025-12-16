@@ -62,7 +62,7 @@ function buildSystemPrompt(currentResults) {
   let systemPrompt = travelAgentSystemPrompt;
   
   // If there are currently displayed results, add them to context
-  if (currentResults && (currentResults.tours?.length > 0 || currentResults.hotels?.length > 0)) {
+  if (currentResults && currentResults.tours?.length > 0) {
     systemPrompt += `\n\n## CURRENTLY DISPLAYED RESULTS\n`;
     systemPrompt += `The user is viewing these search results. When they ask about "these", "which one", or reference the results, use this information:\n\n`;
     
@@ -73,16 +73,6 @@ function buildSystemPrompt(currentResults) {
         if (tour.description) {
           systemPrompt += `   ${tour.description.substring(0, 150)}...\n`;
         }
-      });
-      systemPrompt += `\n`;
-    }
-    
-    if (currentResults.hotels?.length > 0) {
-      systemPrompt += `### Hotels Currently Shown:\n`;
-      currentResults.hotels.forEach((hotel, i) => {
-        systemPrompt += `${i + 1}. "${hotel.name}" - $${hotel.price}/night, ${hotel.rating}★`;
-        if (hotel.location) systemPrompt += `, ${hotel.location}`;
-        systemPrompt += `\n`;
       });
       systemPrompt += `\n`;
     }
@@ -112,7 +102,7 @@ router.post('/chat', async (req, res) => {
     logger.info(`Processing agentic chat request with ${messages.length} messages`);
     
     if (currentResults) {
-      logger.info(`Context includes ${currentResults.tours?.length || 0} tours, ${currentResults.hotels?.length || 0} hotels`);
+      logger.info(`Context includes ${currentResults.tours?.length || 0} tours`);
     }
 
     // Build context-aware system prompt
