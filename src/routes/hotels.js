@@ -179,8 +179,8 @@ router.post('/search', async (req, res, next) => {
     // Send user-friendly error messages
     if (error.message.includes('Destination not found')) {
       return res.status(404).json({ 
-        error: 'Destination not found',
-        message: 'We could not find hotels in the specified destination. Please try a different city or check the spelling.'
+        error: 'Destination not available',
+        message: `Hotels in "${destination}" are not available in the current system. The HotelBeds sandbox environment has limited destinations (primarily European cities like Barcelona, Madrid, Lisbon, Porto). Try searching for a European destination like "Barcelona" or "Lisbon".`
       });
     }
 
