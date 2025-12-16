@@ -708,6 +708,10 @@ export async function getTourDetails(productCode) {
 
 function formatTourResult(product) {
   const price = product.pricing?.summary?.fromPrice || 0;
+  
+  // Check for original price before discount (for special offers)
+  const originalPrice = product.pricing?.summary?.fromPriceBeforeDiscount || null;
+  const hasDiscount = originalPrice && originalPrice > price;
 
   // Determine pricing type - crucial for correct price display
   // Viator uses: TRAVELLER (per person), UNIT (per group/vehicle), etc.
@@ -771,6 +775,8 @@ function formatTourResult(product) {
     rating,
     reviewCount,
     price,
+    originalPrice,      // Original price before discount (null if no discount)
+    hasDiscount,        // True if this tour has a special offer discount
     currency: 'USD',
     image,
     flags: product.flags || [],
