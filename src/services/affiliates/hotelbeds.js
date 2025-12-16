@@ -38,6 +38,7 @@ const DESTINATIONS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
 // ============================================================================
 
 const POPULAR_DESTINATIONS = [
+  // United States
   { code: 'NYC', name: 'New York', countryCode: 'US' },
   { code: 'LAX', name: 'Los Angeles', countryCode: 'US' },
   { code: 'CHI', name: 'Chicago', countryCode: 'US' },
@@ -57,37 +58,89 @@ const POPULAR_DESTINATIONS = [
   { code: 'NOL', name: 'New Orleans', countryCode: 'US' },
   { code: 'PHL', name: 'Philadelphia', countryCode: 'US' },
   { code: 'HNL', name: 'Honolulu', countryCode: 'US' },
-  { code: 'LON', name: 'London', countryCode: 'GB' },
-  { code: 'PAR', name: 'Paris', countryCode: 'FR' },
-  { code: 'ROM', name: 'Rome', countryCode: 'IT' },
+  // Europe - Spain
   { code: 'BCN', name: 'Barcelona', countryCode: 'ES' },
   { code: 'MAD', name: 'Madrid', countryCode: 'ES' },
-  { code: 'AMS', name: 'Amsterdam', countryCode: 'NL' },
-  { code: 'DUB', name: 'Dublin', countryCode: 'IE' },
+  { code: 'SEV', name: 'Seville', countryCode: 'ES' },
+  { code: 'VLC', name: 'Valencia', countryCode: 'ES' },
+  { code: 'AGP', name: 'Malaga', countryCode: 'ES' },
+  { code: 'GRX', name: 'Granada', countryCode: 'ES' },
+  // Europe - Portugal
   { code: 'LIS', name: 'Lisbon', countryCode: 'PT' },
+  { code: 'OPO', name: 'Porto', countryCode: 'PT' },
+  { code: 'FAO', name: 'Faro', countryCode: 'PT' },
+  // Europe - UK & Ireland
+  { code: 'LON', name: 'London', countryCode: 'GB' },
+  { code: 'EDI', name: 'Edinburgh', countryCode: 'GB' },
+  { code: 'MAN', name: 'Manchester', countryCode: 'GB' },
+  { code: 'DUB', name: 'Dublin', countryCode: 'IE' },
+  // Europe - France
+  { code: 'PAR', name: 'Paris', countryCode: 'FR' },
+  { code: 'NCE', name: 'Nice', countryCode: 'FR' },
+  { code: 'LYS', name: 'Lyon', countryCode: 'FR' },
+  // Europe - Italy
+  { code: 'ROM', name: 'Rome', countryCode: 'IT' },
+  { code: 'MIL', name: 'Milan', countryCode: 'IT' },
+  { code: 'VCE', name: 'Venice', countryCode: 'IT' },
+  { code: 'FLR', name: 'Florence', countryCode: 'IT' },
+  { code: 'NAP', name: 'Naples', countryCode: 'IT' },
+  // Europe - Germany & Austria
   { code: 'BER', name: 'Berlin', countryCode: 'DE' },
   { code: 'MUC', name: 'Munich', countryCode: 'DE' },
+  { code: 'FRA', name: 'Frankfurt', countryCode: 'DE' },
   { code: 'VIE', name: 'Vienna', countryCode: 'AT' },
+  // Europe - Other
+  { code: 'AMS', name: 'Amsterdam', countryCode: 'NL' },
   { code: 'PRG', name: 'Prague', countryCode: 'CZ' },
   { code: 'BUD', name: 'Budapest', countryCode: 'HU' },
   { code: 'ATH', name: 'Athens', countryCode: 'GR' },
   { code: 'IST', name: 'Istanbul', countryCode: 'TR' },
+  { code: 'ZRH', name: 'Zurich', countryCode: 'CH' },
+  { code: 'GVA', name: 'Geneva', countryCode: 'CH' },
+  { code: 'BRU', name: 'Brussels', countryCode: 'BE' },
+  { code: 'CPH', name: 'Copenhagen', countryCode: 'DK' },
+  { code: 'OSL', name: 'Oslo', countryCode: 'NO' },
+  { code: 'STO', name: 'Stockholm', countryCode: 'SE' },
+  { code: 'HEL', name: 'Helsinki', countryCode: 'FI' },
+  { code: 'WAW', name: 'Warsaw', countryCode: 'PL' },
+  { code: 'KRK', name: 'Krakow', countryCode: 'PL' },
+  // Asia
   { code: 'TYO', name: 'Tokyo', countryCode: 'JP' },
   { code: 'SIN', name: 'Singapore', countryCode: 'SG' },
   { code: 'BKK', name: 'Bangkok', countryCode: 'TH' },
   { code: 'HKG', name: 'Hong Kong', countryCode: 'HK' },
+  { code: 'SEL', name: 'Seoul', countryCode: 'KR' },
+  { code: 'PEK', name: 'Beijing', countryCode: 'CN' },
+  { code: 'SHA', name: 'Shanghai', countryCode: 'CN' },
+  { code: 'DEL', name: 'Delhi', countryCode: 'IN' },
+  { code: 'BOM', name: 'Mumbai', countryCode: 'IN' },
+  { code: 'KUL', name: 'Kuala Lumpur', countryCode: 'MY' },
+  { code: 'HAN', name: 'Hanoi', countryCode: 'VN' },
+  { code: 'SGN', name: 'Ho Chi Minh City', countryCode: 'VN' },
+  { code: 'DPS', name: 'Bali', countryCode: 'ID' },
+  // Oceania
   { code: 'SYD', name: 'Sydney', countryCode: 'AU' },
+  { code: 'MEL', name: 'Melbourne', countryCode: 'AU' },
+  { code: 'AKL', name: 'Auckland', countryCode: 'NZ' },
+  // Americas
   { code: 'CUN', name: 'Cancun', countryCode: 'MX' },
   { code: 'MEX', name: 'Mexico City', countryCode: 'MX' },
   { code: 'RIO', name: 'Rio de Janeiro', countryCode: 'BR' },
+  { code: 'SAO', name: 'Sao Paulo', countryCode: 'BR' },
+  { code: 'BUE', name: 'Buenos Aires', countryCode: 'AR' },
+  { code: 'LIM', name: 'Lima', countryCode: 'PE' },
+  { code: 'BOG', name: 'Bogota', countryCode: 'CO' },
+  { code: 'SCL', name: 'Santiago', countryCode: 'CL' },
+  // Middle East & Africa
   { code: 'DXB', name: 'Dubai', countryCode: 'AE' },
-  { code: 'CPT', name: 'Cape Town', countryCode: 'ZA' },
+  { code: 'AUH', name: 'Abu Dhabi', countryCode: 'AE' },
+  { code: 'DOH', name: 'Doha', countryCode: 'QA' },
+  { code: 'TLV', name: 'Tel Aviv', countryCode: 'IL' },
   { code: 'CAI', name: 'Cairo', countryCode: 'EG' },
-  { code: 'MIL', name: 'Milan', countryCode: 'IT' },
-  { code: 'VCE', name: 'Venice', countryCode: 'IT' },
-  { code: 'FLR', name: 'Florence', countryCode: 'IT' },
-  { code: 'NCE', name: 'Nice', countryCode: 'FR' },
-  { code: 'EDI', name: 'Edinburgh', countryCode: 'GB' },
+  { code: 'CPT', name: 'Cape Town', countryCode: 'ZA' },
+  { code: 'JNB', name: 'Johannesburg', countryCode: 'ZA' },
+  { code: 'CMN', name: 'Casablanca', countryCode: 'MA' },
+  { code: 'RAK', name: 'Marrakech', countryCode: 'MA' },
 ];
 
 // ============================================================================
@@ -218,8 +271,9 @@ const CITY_NAME_ALIASES = {
 
 /**
  * Find destination by name (fuzzy matching)
- * ONLY returns destinations with valid HotelBeds codes (from API)
- * Fallback list is only for autocomplete suggestions, NOT for code lookup
+ * First tries API destinations, then falls back to popular destinations
+ * NOTE: HotelBeds sandbox only returns ~100 obscure destinations in the Content API,
+ * but the Booking API accepts codes for major cities. So fallback codes ARE valid!
  */
 async function findDestination(destinationName) {
   const searchLower = destinationName.toLowerCase().trim();
@@ -253,7 +307,7 @@ async function findDestination(destinationName) {
     return null;
   };
   
-  // Search API destinations ONLY (these have valid HotelBeds codes)
+  // Try API destinations first
   try {
     const apiDestinations = await fetchDestinations();
     const apiMatch = findMatch(apiDestinations);
@@ -262,15 +316,21 @@ async function findDestination(destinationName) {
       logger.info(`Matched destination (API): "${destinationName}" → ${getDestinationName(apiMatch)} (${apiMatch.code})`);
       return apiMatch;
     }
-    
-    // No API match found - DO NOT use fallback codes as they're not valid for HotelBeds
-    logger.warn(`No HotelBeds destination found for: "${destinationName}". The HotelBeds sandbox has limited destinations (mostly European cities).`);
-    return null;
-    
   } catch (error) {
-    logger.error(`Failed to search destinations: ${error.message}`);
-    return null;
+    logger.warn(`API destinations failed: ${error.message}`);
   }
+  
+  // Try fallback popular destinations
+  // These codes work with the Booking API even though they're not in the Content API destinations list
+  const fallbackMatch = findMatch(POPULAR_DESTINATIONS);
+  
+  if (fallbackMatch) {
+    logger.info(`Matched destination (fallback): "${destinationName}" → ${getDestinationName(fallbackMatch)} (${fallbackMatch.code})`);
+    return fallbackMatch;
+  }
+  
+  logger.warn(`No destination match found for: "${destinationName}"`);
+  return null;
 }
 
 // ============================================================================
@@ -590,7 +650,7 @@ function buildBookingLink(hotelCode, checkIn, checkOut) {
 /**
  * Search destinations for autocomplete
  * Searches BOTH API destinations AND fallback popular destinations for best coverage
- * IMPORTANT: Only API destinations have valid HotelBeds codes!
+ * NOTE: Both API and fallback destination codes work with the Booking API!
  */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
@@ -604,7 +664,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   const searchTerms = [searchLower, ...alternativeNames];
   
   // Helper to score and filter destinations
-  const scoreDestinations = (destinations, isFromAPI = false) => {
+  const scoreDestinations = (destinations) => {
     return destinations
       .filter(d => {
         const name = getDestinationName(d);
@@ -630,46 +690,45 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         }
         
         return { 
-          code: isFromAPI ? d.code : null,  // Only use code if from API!
+          code: d.code,  // Always pass the code - both API and fallback codes work!
           name: name,
           countryCode: d.countryCode,
-          score,
-          isFromAPI
+          score
         };
       });
   };
 
-  // Try API destinations first (these have VALID HotelBeds codes)
+  // Try API destinations first
   let apiResults = [];
   try {
     const apiDestinations = await fetchDestinations();
-    apiResults = scoreDestinations(apiDestinations, true);
+    apiResults = scoreDestinations(apiDestinations);
   } catch (error) {
     logger.warn(`HotelBeds API failed for autocomplete: ${error.message}`);
   }
 
-  // Also search fallback destinations (popular cities, but codes are NOT valid for HotelBeds)
-  const fallbackResults = scoreDestinations(POPULAR_DESTINATIONS, false);
+  // Also search fallback destinations (popular cities with working codes)
+  const fallbackResults = scoreDestinations(POPULAR_DESTINATIONS);
 
-  // Combine results, preferring API results (they have valid codes)
+  // Combine results, preferring fallback for popular destinations
   const seenNames = new Set();
   const combined = [];
   
-  // Add API results first (they have valid HotelBeds codes)
-  for (const result of apiResults) {
-    const key = result.name.toLowerCase();
-    if (!seenNames.has(key)) {
-      seenNames.add(key);
-      combined.push({ ...result, score: result.score + 20 }); // Boost API results
-    }
-  }
-  
-  // Add fallback results that aren't duplicates (these DON'T have valid codes)
+  // Add fallback results first (popular cities people are more likely to search for)
   for (const result of fallbackResults) {
     const key = result.name.toLowerCase();
     if (!seenNames.has(key)) {
       seenNames.add(key);
-      combined.push({ ...result, score: result.score + 10 }); // Slight boost for popular
+      combined.push({ ...result, score: result.score + 20 }); // Boost popular destinations
+    }
+  }
+  
+  // Add API results that aren't duplicates
+  for (const result of apiResults) {
+    const key = result.name.toLowerCase();
+    if (!seenNames.has(key)) {
+      seenNames.add(key);
+      combined.push(result);
     }
   }
 
@@ -681,7 +740,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   logger.info(`Autocomplete "${searchTerm}": found ${sorted.length} matches (${apiResults.length} API, ${fallbackResults.length} fallback)`);
 
   return sorted.map(d => ({
-    code: d.code,  // Will be null for fallback results
+    code: d.code,
     name: d.name,
     countryCode: d.countryCode,
     displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
