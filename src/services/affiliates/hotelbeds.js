@@ -566,7 +566,7 @@ function buildBookingLink(hotelCode, checkIn, checkOut) {
 
 /**
  * Search destinations for autocomplete
- * With fallback to popular destinations if API fails
+ * Searches BOTH API destinations AND fallback popular destinations for best coverage
  */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
@@ -574,19 +574,17 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   }
 
   const searchLower = searchTerm.toLowerCase();
-
-  try {
-    // Try to get destinations from HotelBeds API
-    const destinations = await fetchDestinations();
-    
-    // Score and filter destinations
-    const scored = destinations
+  
+  // Helper to score and filter destinations
+  const scoreDestinations = (destinations) => {
+    return destinations
       .filter(d => {
         const name = getDestinationName(d);
         return name && name.toLowerCase().includes(searchLower);
       })
       .map(d => {
-        const nameLower = getDestinationName(d).toLowerCase();
+        const name = getDestinationName(d);
+        const nameLower = name.toLowerCase();
         let score = 0;
         
         // Exact match gets highest score
@@ -596,23 +594,60 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         // Contains search term
         else score = 50;
         
-        return { ...d, score, displayName: getDestinationName(d) };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+        return { 
+          code: d.code, 
+          name: name,
+          countryCode: d.countryCode,
+          score 
+        };
+      });
+  };
 
-    return scored.map(d => ({
-      code: d.code,
-      name: d.displayName,
-      countryCode: d.countryCode,
-      displayName: d.countryCode ? `${d.displayName}, ${d.countryCode}` : d.displayName
-    }));
-
+  // Always search fallback destinations first (most popular cities)
+  const fallbackResults = scoreDestinations(POPULAR_DESTINATIONS);
+  
+  // Try API destinations as well
+  let apiResults = [];
+  try {
+    const apiDestinations = await fetchDestinations();
+    apiResults = scoreDestinations(apiDestinations);
   } catch (error) {
-    // API failed - use fallback list of popular destinations
-    logger.warn(`HotelBeds API failed, using fallback destinations: ${error.message}`);
-    return searchFallbackDestinations(searchTerm, limit);
+    logger.warn(`HotelBeds API failed for autocomplete: ${error.message}`);
   }
+
+  // Combine results, preferring fallback for duplicates (better known codes)
+  const seenCodes = new Set();
+  const combined = [];
+  
+  // Add fallback results first (higher priority for popular destinations)
+  for (const result of fallbackResults) {
+    if (!seenCodes.has(result.code)) {
+      seenCodes.add(result.code);
+      combined.push({ ...result, score: result.score + 10 }); // Boost popular destinations
+    }
+  }
+  
+  // Add API results that aren't duplicates
+  for (const result of apiResults) {
+    if (!seenCodes.has(result.code)) {
+      seenCodes.add(result.code);
+      combined.push(result);
+    }
+  }
+
+  // Sort by score and limit
+  const sorted = combined
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  logger.info(`Autocomplete "${searchTerm}": found ${sorted.length} matches (${fallbackResults.length} fallback, ${apiResults.length} API)`);
+
+  return sorted.map(d => ({
+    code: d.code,
+    name: d.name,
+    countryCode: d.countryCode,
+    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+  }));
 }
 
 /**
