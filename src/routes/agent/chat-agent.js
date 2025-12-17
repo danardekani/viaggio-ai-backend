@@ -61,23 +61,20 @@ const REQUEST_TIMEOUT_MS = 55000;
 function buildSystemPrompt(currentResults) {
   let systemPrompt = travelAgentSystemPrompt;
   
-  // If there are currently displayed results, add them to context
+  // If there are currently displayed results, add them to context (limit to 10 to save tokens)
   if (currentResults && currentResults.tours?.length > 0) {
     systemPrompt += `\n\n## CURRENTLY DISPLAYED RESULTS\n`;
-    systemPrompt += `The user is viewing these search results. When they ask about "these", "which one", or reference the results, use this information:\n\n`;
+    systemPrompt += `The user is viewing search results. When they reference "these" or ask "which one", use this info:\n\n`;
     
-    if (currentResults.tours?.length > 0) {
-      systemPrompt += `### Tours Currently Shown:\n`;
-      currentResults.tours.forEach((tour, i) => {
-        systemPrompt += `${i + 1}. "${tour.name}" - $${tour.price}, ${tour.duration}, ${tour.rating}★ (${tour.reviewCount} reviews)\n`;
-        if (tour.description) {
-          systemPrompt += `   ${tour.description.substring(0, 150)}...\n`;
-        }
-      });
-      systemPrompt += `\n`;
+    // Only include first 10 tours to save tokens
+    const toursToShow = currentResults.tours.slice(0, 10);
+    toursToShow.forEach((tour, i) => {
+      systemPrompt += `${i + 1}. "${tour.name}" - $${tour.price}, ${tour.rating}★\n`;
+    });
+    
+    if (currentResults.tours.length > 10) {
+      systemPrompt += `(+ ${currentResults.tours.length - 10} more tours)\n`;
     }
-    
-    systemPrompt += `When answering questions about these results, refer to them by name or number. Don't search again unless the user asks for different results.\n`;
   }
   
   return systemPrompt;
@@ -108,11 +105,17 @@ router.post('/chat', async (req, res) => {
     // Build context-aware system prompt
     const systemPrompt = buildSystemPrompt(currentResults);
 
-    // Build conversation history for Claude
-    let conversationMessages = messages.map(msg => ({
+    // Build conversation history for Claude - LIMIT to last 10 messages to save tokens
+    const MAX_HISTORY_MESSAGES = 10;
+    const recentMessages = messages.slice(-MAX_HISTORY_MESSAGES);
+    let conversationMessages = recentMessages.map(msg => ({
       role: msg.role,
       content: msg.content
     }));
+    
+    if (messages.length > MAX_HISTORY_MESSAGES) {
+      logger.info(`Trimmed conversation from ${messages.length} to ${MAX_HISTORY_MESSAGES} messages`);
+    }
 
     // Track tool usage for this request
     const toolsUsed = [];
@@ -164,7 +167,20 @@ router.post('/chat', async (req, res) => {
           messages: conversationMessages
         });
       } catch (apiError) {
-        logger.error('Claude API error:', apiError.message);
+        const errorMessage = apiError.message || '';
+        logger.error('Claude API error:', errorMessage);
+        
+        // Check for rate limit error
+        if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
+          return res.json({
+            message: "I'm a bit busy right now! Please wait a moment and try again. 😊",
+            error: true,
+            errorType: 'rate_limit',
+            toolsUsed,
+            iterations
+          });
+        }
+        
         return res.json({
           message: "I'm having trouble connecting right now. Could you try again in a moment?",
           error: true,
