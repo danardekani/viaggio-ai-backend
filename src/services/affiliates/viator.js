@@ -703,33 +703,64 @@ function formatTourResult(product) {
                        product.pricingInfo?.groupPricing?.maxGroupSize ||
                        null;
 
+  // Duration - handle various formats
   let duration = 'Varies';
+  let durationMinutes = null;
   if (product.duration?.fixedDurationInMinutes) {
-    const hours = Math.floor(product.duration.fixedDurationInMinutes / 60);
-    const mins = product.duration.fixedDurationInMinutes % 60;
+    durationMinutes = product.duration.fixedDurationInMinutes;
+    const hours = Math.floor(durationMinutes / 60);
+    const mins = durationMinutes % 60;
     if (hours === 0) duration = `${mins} minutes`;
-    else if (mins === 0) duration = `${hours} hours`;
+    else if (mins === 0) duration = `${hours} hour${hours > 1 ? 's' : ''}`;
     else duration = `${hours}h ${mins}m`;
+  } else if (product.duration?.variableDurationFromMinutes) {
+    const fromMins = product.duration.variableDurationFromMinutes;
+    const toMins = product.duration.variableDurationToMinutes;
+    const fromHours = Math.floor(fromMins / 60);
+    const toHours = Math.floor(toMins / 60);
+    duration = `${fromHours}-${toHours} hours`;
+    durationMinutes = fromMins;
   }
 
   const rating = product.reviews?.combinedAverageRating?.toFixed(1) || 'New';
   const reviewCount = product.reviews?.totalReviews || 0;
 
-  let image = null;
-  if (product.images?.[0]?.variants) {
-    const variant = product.images[0].variants.find(v => v.width >= 400 && v.width <= 720) ||
-                    product.images[0].variants[product.images[0].variants.length - 1];
-    image = variant?.url;
+  // Get multiple images for gallery
+  let images = [];
+  if (product.images && product.images.length > 0) {
+    images = product.images.slice(0, 6).map(img => {
+      const variant = img.variants?.find(v => v.width >= 400 && v.width <= 720) ||
+                      img.variants?.[img.variants.length - 1];
+      return variant?.url;
+    }).filter(Boolean);
   }
+  const image = images[0] || null;
 
   const productCode = product.productCode;
   const bookingLink = product.productUrl || buildAffiliateLink(productCode);
+
+  // Extract highlights/inclusions
+  const inclusions = product.inclusions?.map(i => i.otherDescription || i.typeDescription) || [];
+  const exclusions = product.exclusions?.map(e => e.otherDescription || e.typeDescription) || [];
+  
+  // Extract itinerary/highlights
+  const itinerary = product.itinerary?.itineraryItems?.map(item => ({
+    name: item.pointOfInterestLocation?.attractionId ? item.pointOfInterestLocation.location?.name : item.description,
+    description: item.description,
+    duration: item.duration?.fixedDurationInMinutes
+  })) || [];
+
+  // Additional info
+  const additionalInfo = product.additionalInfo || [];
+  const cancellationPolicy = product.cancellationPolicy?.type || null;
+  const languages = product.languageGuides?.map(lg => lg.language) || [];
 
   return {
     id: productCode,
     name: product.title,
     description: product.description || '',
     duration,
+    durationMinutes,
     rating,
     reviewCount,
     price,
@@ -737,15 +768,23 @@ function formatTourResult(product) {
     hasDiscount,        // True if this tour has a special offer discount
     currency: 'USD',
     image,
+    images,             // Array of image URLs for gallery
     flags: product.flags || [],
     bookingLink,
     link: bookingLink,
     productCode,
-    // NEW: Pricing type information
+    // Pricing type information
     pricingType,        // 'person' or 'group'
     pricingUnit,        // Raw value from API
     maxGroupSize,       // Max travelers for group pricing
-    isPrivateTour       // True if name suggests private tour
+    isPrivateTour,      // True if name suggests private tour
+    // Additional details for modal
+    inclusions,
+    exclusions,
+    itinerary,
+    additionalInfo,
+    cancellationPolicy,
+    languages
   };
 }
 
