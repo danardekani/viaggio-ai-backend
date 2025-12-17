@@ -1,8 +1,5 @@
 // ============================================================================
-// IDENTIFY LOCATION ROUTES
-// ============================================================================
-// API endpoint for the "Where Is This?" feature
-// Accepts image uploads and returns identified travel destinations
+// IDENTIFY LOCATION ROUTES - OPTIMIZED
 // ============================================================================
 
 import express from 'express';
@@ -15,40 +12,12 @@ const router = express.Router();
 // POST /api/identify - Identify location from uploaded image
 // ============================================================================
 
-/**
- * Identify a travel destination from an uploaded image
- * 
- * Request body (JSON):
- * {
- *   image: "base64_encoded_image_data",  // Required - base64 image WITHOUT data URL prefix
- *   mediaType: "image/jpeg"               // Optional - defaults to image/jpeg
- * }
- * 
- * OR multipart/form-data with 'image' file field
- * 
- * Response:
- * {
- *   success: true,
- *   source: "google_vision" | "gemini_ai" | "claude_ai",
- *   destination: {
- *     name: "Santorini",
- *     region: "Cyclades",
- *     country: "Greece",
- *     fullName: "Santorini, Greece"
- *   },
- *   landmark: "Oia Blue Domes",
- *   confidence: "high" | "medium" | "low",
- *   coordinates: { latitude: 36.4618, longitude: 25.3753 },
- *   reasoning: "Identified the iconic blue-domed churches...",
- *   travelTips: "Famous for stunning sunsets and traditional Cycladic architecture."
- * }
- */
 router.post('/', async (req, res, next) => {
   try {
+    const startTime = Date.now();
     let imageBase64;
     let mediaType = 'image/jpeg';
 
-    // Handle JSON body with base64 image
     if (req.body.image) {
       imageBase64 = req.body.image;
       mediaType = req.body.mediaType || 'image/jpeg';
@@ -58,7 +27,6 @@ router.post('/', async (req, res, next) => {
         const parts = imageBase64.split('base64,');
         imageBase64 = parts[1];
         
-        // Extract media type from data URL
         const mediaMatch = parts[0].match(/data:([^;]+)/);
         if (mediaMatch) {
           mediaType = mediaMatch[1];
@@ -67,27 +35,27 @@ router.post('/', async (req, res, next) => {
     } else {
       return res.status(400).json({
         success: false,
-        error: 'No image provided. Send base64 image in request body.'
+        error: 'No image provided.'
       });
     }
 
-    // Validate image size (max 10MB base64 ≈ 7.5MB actual)
+    // Validate image size (max 10MB)
     const imageSizeBytes = (imageBase64.length * 3) / 4;
-    const maxSizeBytes = 10 * 1024 * 1024; // 10MB
-    
-    if (imageSizeBytes > maxSizeBytes) {
+    if (imageSizeBytes > 10 * 1024 * 1024) {
       return res.status(400).json({
         success: false,
         error: 'Image too large. Maximum size is 10MB.'
       });
     }
 
-    logger.info(`Processing image for location identification (${Math.round(imageSizeBytes / 1024)}KB, ${mediaType})`);
+    logger.info(`Processing image (${Math.round(imageSizeBytes / 1024)}KB)`);
 
-    // Identify the location
     const result = await identifyLocation(imageBase64, mediaType);
+    const elapsed = Date.now() - startTime;
 
     if (result.success) {
+      logger.info(`Identified: ${result.destination?.fullName} in ${elapsed}ms`);
+      
       res.json({
         success: true,
         source: result.source,
@@ -95,48 +63,40 @@ router.post('/', async (req, res, next) => {
         landmark: result.landmark,
         confidence: result.confidence,
         coordinates: result.coordinates,
+        googleMapsUrl: result.googleMapsUrl,
         reasoning: result.reasoning,
-        travelTips: result.travelTips
+        // NEW: Include Viator ID for faster tour search
+        viatorDestinationId: result.viatorDestinationId || null,
+        processingTimeMs: elapsed
       });
     } else {
       res.json({
         success: false,
-        message: 'Could not identify the location in this image.',
+        message: 'Could not identify the location.',
         reasoning: result.reasoning,
-        suggestion: 'Try uploading a clearer image with visible landmarks, signs, or distinctive scenery.'
+        suggestion: 'Try a clearer image with visible landmarks.',
+        processingTimeMs: elapsed
       });
     }
 
   } catch (error) {
-    logger.error('Location identification error:', error);
+    logger.error('Identification error:', error);
     next(error);
   }
 });
 
 // ============================================================================
-// GET /api/identify/health - Health check for the vision service
+// GET /api/identify/health
 // ============================================================================
 
 router.get('/health', (req, res) => {
-  const hasVisionKey = !!process.env.GOOGLE_VISION_API_KEY;
-  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
-  const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
-
-  // Determine which AI fallback is configured
-  // Currently using Gemini - update this comment when switching
-  const activeAIProvider = 'gemini';  // Change to 'claude' when switching
-
   res.json({
     status: 'ok',
     services: {
-      googleVision: hasVisionKey ? 'configured' : 'not configured',
-      geminiAI: hasGeminiKey ? 'configured' : 'not configured',
-      claudeAI: hasAnthropicKey ? 'configured' : 'not configured',
-      activeAIFallback: activeAIProvider
-    },
-    message: hasVisionKey || hasGeminiKey || hasAnthropicKey 
-      ? 'Location identification service is ready'
-      : 'Warning: No API keys configured'
+      googleVision: process.env.GOOGLE_VISION_API_KEY ? 'configured' : 'not configured',
+      geminiAI: process.env.GEMINI_API_KEY ? 'configured' : 'not configured',
+      claudeAI: process.env.ANTHROPIC_API_KEY ? 'configured' : 'not configured'
+    }
   });
 });
 
