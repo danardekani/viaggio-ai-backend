@@ -354,61 +354,6 @@ If you truly cannot identify the location (generic indoor shot, too blurry, no d
 }
 
 // ============================================================================
-// GEMINI - AI IMAGE ANALYSIS (commented out - uncomment to use)
-// ============================================================================
-
-// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-//   try {
-//     logger.info('Analyzing image with Gemini for location identification...');
-//
-//     const model = genAI.getGenerativeModel({
-//       model: 'gemini-2.0-flash-exp',
-//       generationConfig: {
-//         temperature: 0.2,
-//         maxOutputTokens: 1000,
-//       }
-//     });
-//
-//     // Build context hints (same structure as Claude)
-//     let contextHints = '';
-//     if (visionContext.landmarks?.length > 0) {
-//       const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}%)`).join(', ');
-//       contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
-//     }
-//     if (visionContext.bestGuessLabels?.length > 0) {
-//       contextHints += `\n- WEB IMAGE SEARCH suggests: ${visionContext.bestGuessLabels.join(', ')}`;
-//     }
-//     if (visionContext.webEntities?.length > 0) {
-//       const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
-//       contextHints += `\n- RELATED ENTITIES: ${topEntities}`;
-//     }
-//     if (visionContext.detectedText) {
-//       contextHints += `\n- TEXT VISIBLE: "${visionContext.detectedText.substring(0, 300)}"`;
-//     }
-//
-//     const prompt = `You are an expert travel destination identifier...`; // Same prompt as Claude
-//
-//     const imagePart = {
-//       inlineData: {
-//         data: imageBase64,
-//         mimeType: mediaType
-//       }
-//     };
-//
-//     const result = await model.generateContent([prompt, imagePart]);
-//     const responseText = result.response.text().trim();
-//
-//     let jsonText = responseText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
-//     const analysis = JSON.parse(jsonText);
-//
-//     return { success: analysis.identified, ...analysis };
-//   } catch (error) {
-//     logger.error('Gemini image analysis error:', error);
-//     return { success: false, identified: false, error: error.message };
-//   }
-// }
-
-// ============================================================================
 // AI ANALYSIS ROUTER - Routes to active provider
 // ============================================================================
 
