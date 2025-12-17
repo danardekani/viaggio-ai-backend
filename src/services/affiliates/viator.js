@@ -475,24 +475,10 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         }
       }
       
-      logger.info(`Searching for fallback region with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
+      logger.info(`Searching for fallback with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
       
-      // Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
-      for (const hintVar of expandedHints) {
-        // Skip very short or generic terms
-        if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
-        
-        const regionMatch = destinations.find(d => {
-          const name = (d.destinationName || d.name || '').toLowerCase();
-          return name === hintVar || name.includes(hintVar);
-        });
-        if (regionMatch && regionMatch.destinationId !== match.destinationId) {
-          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
-          return regionMatch;
-        }
-      }
-      
-      // Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
+      // FIRST: Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
+      // This gives more relevant results than falling back to entire state
       const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
       if (nearbyFallbacks) {
         for (const fallbackName of nearbyFallbacks) {
@@ -504,6 +490,22 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
             logger.info(`Using nearby fallback "${fallbackMatch.name}" (ID: ${fallbackMatch.destinationId}) for "${query}"`);
             return fallbackMatch;
           }
+        }
+      }
+      
+      // SECOND: Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
+      // This is a broader fallback if no nearby city is available
+      for (const hintVar of expandedHints) {
+        // Skip very short or generic terms
+        if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
+        
+        const regionMatch = destinations.find(d => {
+          const name = (d.destinationName || d.name || '').toLowerCase();
+          return name === hintVar || name.includes(hintVar);
+        });
+        if (regionMatch && regionMatch.destinationId !== match.destinationId) {
+          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
+          return regionMatch;
         }
       }
       
@@ -757,7 +759,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const tags = getTagsFromSearchTerms(filterTerms);
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
-  const PAGE_SIZE = 100; // Viator API max per request
+  const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
   const MAX_RESULTS = 5000; // Safety limit to prevent runaway requests
   
   logger.info(`Searching ALL tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
