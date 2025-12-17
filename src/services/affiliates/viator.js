@@ -338,6 +338,23 @@ const US_STATE_MAPPINGS = {
   'wisconsin': 'wi', 'wyoming': 'wy', 'district of columbia': 'dc'
 };
 
+// Nearby destination fallbacks for cities that don't exist in Viator
+// Maps city names to nearby alternatives that DO exist in Viator
+const NEARBY_DESTINATION_FALLBACKS = {
+  // New Jersey Shore towns -> Atlantic City (the main NJ beach destination in Viator)
+  'ocean city': ['Atlantic City', 'Philadelphia'],
+  'wildwood': ['Atlantic City', 'Philadelphia'],
+  'cape may': ['Atlantic City', 'Philadelphia'],
+  'seaside heights': ['Atlantic City', 'Philadelphia'],
+  'point pleasant': ['Atlantic City', 'Philadelphia'],
+  'long beach island': ['Atlantic City', 'Philadelphia'],
+  'asbury park': ['Atlantic City', 'Philadelphia'],
+  // Other common fallbacks
+  'hoboken': ['New York City', 'Jersey City'],
+  'jersey city': ['New York City'],
+  'newark': ['New York City'],
+};
+
 // Create reverse mapping (abbreviation -> full name)
 const US_STATE_ABBREV_TO_NAME = Object.fromEntries(
   Object.entries(US_STATE_MAPPINGS).map(([name, abbr]) => [abbr, name])
@@ -440,8 +457,31 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       // Try to find the state/region as a destination instead
       logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
       
+      // Split the hint by comma to get individual parts (e.g., "new jersey, united states" -> ["new jersey", "united states"])
+      const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+      
+      // Build expanded hint variations including split parts
+      const expandedHints = [...hintVariations];
+      for (const part of hintParts) {
+        if (!expandedHints.includes(part)) {
+          expandedHints.push(part);
+        }
+        // Add state variations for each part
+        const partVariations = getStateVariations(part);
+        for (const v of partVariations) {
+          if (!expandedHints.includes(v)) {
+            expandedHints.push(v);
+          }
+        }
+      }
+      
+      logger.info(`Searching for fallback region with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
+      
       // Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
-      for (const hintVar of hintVariations) {
+      for (const hintVar of expandedHints) {
+        // Skip very short or generic terms
+        if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
+        
         const regionMatch = destinations.find(d => {
           const name = (d.destinationName || d.name || '').toLowerCase();
           return name === hintVar || name.includes(hintVar);
@@ -449,6 +489,21 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         if (regionMatch && regionMatch.destinationId !== match.destinationId) {
           logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
           return regionMatch;
+        }
+      }
+      
+      // Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
+      const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
+      if (nearbyFallbacks) {
+        for (const fallbackName of nearbyFallbacks) {
+          const fallbackMatch = destinations.find(d => {
+            const name = (d.destinationName || d.name || '').toLowerCase();
+            return name === fallbackName.toLowerCase() || name.includes(fallbackName.toLowerCase());
+          });
+          if (fallbackMatch) {
+            logger.info(`Using nearby fallback "${fallbackMatch.name}" (ID: ${fallbackMatch.destinationId}) for "${query}"`);
+            return fallbackMatch;
+          }
         }
       }
       
