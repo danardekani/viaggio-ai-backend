@@ -404,7 +404,7 @@ function applyFilters(filtering, options) {
  * @param {string} params.destination - City name
  * @param {string} params.destinationId - Optional destination ID (skips name lookup if provided)
  * @param {string} params.searchTerms - Keywords to filter by
- * @param {number} params.resultCount - Number of results (default 10, max 20)
+ * @param {number} params.resultCount - Number of results (default 10, no max - fetches all)
  * @param {string} params.sortBy - Sort option
  * @param {string} params.startDate - Optional start date (YYYY-MM-DD)
  * @param {string} params.endDate - Optional end date (YYYY-MM-DD)
@@ -442,94 +442,13 @@ export async function searchTours({
   if (minDuration || maxDuration) filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
   if (minRating) filterSummary.push(`rating: ${minRating}+`);
 
-  logger.info(`Searching tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
+  logger.info(`Searching ALL tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
 
   try {
-    const tags = getTagsFromSearchTerms(searchTerms);
-    const needsClientSort = sortBy === 'reviews';
-    const fetchCount = needsClientSort ? 50 : Math.min(resultCount * 2, 30);
-    const viatorSort = getViatorSort(sortBy);
     const filterOptions = { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating };
     
-    // If we have tags or search terms, use tag-based search
-    if (tags.length > 0 || searchTerms) {
-      logger.info(`Using tag-based search for "${searchTerms}" with tags [${tags.join(', ')}]`);
-      return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions, destinationId);
-    }
-
-    // Get destination info - use provided ID or look up by name
-    let destInfo;
-    if (destinationId) {
-      // Use the provided destination ID directly - skip fuzzy name matching
-      destInfo = { id: parseInt(destinationId), name: destination };
-      logger.info(`Using provided destination ID ${destinationId} for "${destination}"`);
-    } else {
-      // Fall back to name-based lookup
-      destInfo = await findDestination(destination);
-      if (!destInfo) {
-        logger.warn(`Destination not found: ${destination}, trying tag-based search`);
-        return await searchByDestinationId(destination, resultCount, '', sortBy, filterOptions, null);
-      }
-    }
-
-    logger.info(`Using destination ID ${destInfo.id} (${destInfo.name}) for search, sort: ${sortBy}`);
-
-    const searchBody = {
-      filtering: {
-        destination: destInfo.id
-      },
-      sorting: viatorSort,
-      pagination: {
-        start: 1,
-        count: fetchCount
-      },
-      currency: 'USD'
-    };
-
-    applyFilters(searchBody.filtering, filterOptions);
-
-    const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
-      method: 'POST',
-      headers: {
-        'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
-        'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(searchBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(`Viator search error: ${response.status} - ${errorText}`);
-      throw new Error(`Viator API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    let products = data.products || [];
-
-    logger.info(`Found ${products.length} tours for ${destination}`);
-    
-    // Apply client-side sorting by review count if requested
-    if (needsClientSort && products.length > 0) {
-      products.sort((a, b) => {
-        const reviewsA = a.reviews?.totalReviews || 0;
-        const reviewsB = b.reviews?.totalReviews || 0;
-        return reviewsB - reviewsA;
-      });
-      logger.info(`Sorted ${products.length} tours by review count`);
-    }
-
-    // Filter out/deprioritize transfers - actual tours should come first
-    products = filterTransfers(products, false);
-    
-    // If ALL results are transfers, try to find actual tours from a broader search
-    const actualTours = products.filter(p => !isTransferProduct(p));
-    if (actualTours.length === 0 && products.length > 0) {
-      logger.warn(`Only transfers found for ${destination}, no actual tours available`);
-    }
-
-    return products.slice(0, resultCount).map(p => formatTourResult(p));
+    // Use searchByDestinationId for all searches - it handles pagination to get ALL results
+    return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions, destinationId);
 
   } catch (error) {
     logger.error('Tour search error:', error);
@@ -547,65 +466,83 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   // Use provided destination ID if available
   if (providedDestinationId) {
     destInfo = { id: parseInt(providedDestinationId), name: destination };
-    logger.info(`Using provided destination ID ${providedDestinationId} for fallback search`);
+    logger.info(`Using provided destination ID ${providedDestinationId} for search`);
   } else {
     destInfo = await findDestination(destination);
     if (!destInfo) {
-      logger.warn(`Destination not found for fallback: ${destination}`);
+      logger.warn(`Destination not found: ${destination}`);
       return [];
     }
   }
 
   const tags = getTagsFromSearchTerms(filterTerms);
   const needsClientSort = sortBy === 'reviews';
-  const fetchCount = needsClientSort ? 50 : Math.min(resultCount * 2, 30);
   const viatorSort = getViatorSort(sortBy);
+  const PAGE_SIZE = 100; // Viator API max per request
+  const MAX_RESULTS = 5000; // Safety limit to prevent runaway requests
   
-  logger.info(`Fallback search: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
+  logger.info(`Searching ALL tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
-  const searchBody = {
-    filtering: {
-      destination: destInfo.id
-    },
-    sorting: viatorSort,
-    pagination: {
-      start: 1,
-      count: fetchCount
-    },
-    currency: 'USD'
-  };
+  let allProducts = [];
+  let currentStart = 1;
+  let totalCount = 0;
+  let hasMore = true;
 
-  if (tags.length > 0) {
-    searchBody.filtering.tags = tags;
-    logger.info(`Using API tag filter: [${tags.join(', ')}]`);
+  // Fetch ALL pages of results until we have everything
+  while (hasMore && allProducts.length < MAX_RESULTS) {
+    const searchBody = {
+      filtering: {
+        destination: destInfo.id
+      },
+      sorting: viatorSort,
+      pagination: {
+        start: currentStart,
+        count: PAGE_SIZE
+      },
+      currency: 'USD'
+    };
+
+    if (tags.length > 0) {
+      searchBody.filtering.tags = tags;
+    }
+
+    applyFilters(searchBody.filtering, filterOptions);
+
+    const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(searchBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Viator search error (page ${currentPage}): ${response.status} - ${errorText}`);
+      break;
+    }
+
+    const data = await response.json();
+    const pageProducts = data.products || [];
+    totalCount = data.totalCount || 0;
+
+    allProducts = [...allProducts, ...pageProducts];
+    
+    const pageNum = Math.ceil(currentStart / PAGE_SIZE);
+    logger.info(`Page ${pageNum}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
+
+    // Check if there are more results
+    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+    currentStart += PAGE_SIZE;
   }
 
-  applyFilters(searchBody.filtering, filterOptions);
-
-  const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
-    method: 'POST',
-    headers: {
-      'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
-      'Accept-Language': 'en-US',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(searchBody)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    logger.error(`Viator fallback search error: ${response.status} - ${errorText}`);
-    return [];
-  }
-
-  const data = await response.json();
-  let products = data.products || [];
-
-  logger.info(`Fallback found ${products.length} tours for ${destination}${tags.length ? ' with tag filter' : ''}`);
+  logger.info(`Fetched ${allProducts.length} total tours for ${destination} (API reported ${totalCount} available)`);
 
   // If tag filtering returned 0 results, try again without tags
-  if (products.length === 0 && tags.length > 0) {
+  if (allProducts.length === 0 && tags.length > 0) {
     logger.info(`No results with tags, retrying without tag filter`);
     
     const retryBody = {
@@ -615,28 +552,48 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
       sorting: viatorSort,
       pagination: {
         start: 1,
-        count: 50
+        count: PAGE_SIZE
       },
       currency: 'USD'
     };
 
-    const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
-      method: 'POST',
-      headers: {
-        'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
-        'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(retryBody)
-    });
+    applyFilters(retryBody.filtering, filterOptions);
 
-    if (retryResponse.ok) {
-      const retryData = await retryResponse.json();
-      products = retryData.products || [];
-      logger.info(`Retry without tags found ${products.length} tours`);
+    // Fetch ALL pages without tags
+    let retryStart = 1;
+    let retryHasMore = true;
+    
+    while (retryHasMore && allProducts.length < MAX_RESULTS) {
+      retryBody.pagination.start = retryStart;
+      
+      const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
+        method: 'POST',
+        headers: {
+          'exp-api-key': API_KEY,
+          'Accept': 'application/json;version=2.0',
+          'Accept-Language': 'en-US',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(retryBody)
+      });
+
+      if (retryResponse.ok) {
+        const retryData = await retryResponse.json();
+        const retryProducts = retryData.products || [];
+        totalCount = retryData.totalCount || 0;
+        
+        allProducts = [...allProducts, ...retryProducts];
+        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+        retryStart += PAGE_SIZE;
+      } else {
+        break;
+      }
     }
+    
+    logger.info(`Retry without tags found ${allProducts.length} total tours`);
   }
+
+  let products = allProducts;
 
   // Apply client-side filtering if we have search terms but no tag results
   if (filterTerms && products.length > 0 && tags.length === 0) {
@@ -654,12 +611,12 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     if (filteredProducts.length > 0) {
       products = filteredProducts;
     } else {
-      logger.info(`No tours matched filter "${filterTerms}", returning top-rated tours instead`);
+      logger.info(`No tours matched filter "${filterTerms}", returning all tours instead`);
     }
   }
 
   // Apply client-side sorting by review count if requested
-  if (needsClientSort && products.length > 0) {
+  if (sortBy === 'reviews' && products.length > 0) {
     products.sort((a, b) => {
       const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
       const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
@@ -677,7 +634,8 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     logger.warn(`Only transfers found for ${destination}, no actual tours available`);
   }
 
-  return products.slice(0, resultCount).map(p => formatTourResult(p));
+  // Return ALL results (no slicing)
+  return products.map(p => formatTourResult(p));
 }
 
 // ============================================================================
