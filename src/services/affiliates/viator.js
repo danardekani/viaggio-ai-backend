@@ -321,6 +321,48 @@ const COUNTRY_ALIASES = {
   'united arab emirates': ['uae']
 };
 
+// US State name mappings (full name -> abbreviation and vice versa)
+const US_STATE_MAPPINGS = {
+  'alabama': 'al', 'alaska': 'ak', 'arizona': 'az', 'arkansas': 'ar',
+  'california': 'ca', 'colorado': 'co', 'connecticut': 'ct', 'delaware': 'de',
+  'florida': 'fl', 'georgia': 'ga', 'hawaii': 'hi', 'idaho': 'id',
+  'illinois': 'il', 'indiana': 'in', 'iowa': 'ia', 'kansas': 'ks',
+  'kentucky': 'ky', 'louisiana': 'la', 'maine': 'me', 'maryland': 'md',
+  'massachusetts': 'ma', 'michigan': 'mi', 'minnesota': 'mn', 'mississippi': 'ms',
+  'missouri': 'mo', 'montana': 'mt', 'nebraska': 'ne', 'nevada': 'nv',
+  'new hampshire': 'nh', 'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny',
+  'north carolina': 'nc', 'north dakota': 'nd', 'ohio': 'oh', 'oklahoma': 'ok',
+  'oregon': 'or', 'pennsylvania': 'pa', 'rhode island': 'ri', 'south carolina': 'sc',
+  'south dakota': 'sd', 'tennessee': 'tn', 'texas': 'tx', 'utah': 'ut',
+  'vermont': 'vt', 'virginia': 'va', 'washington': 'wa', 'west virginia': 'wv',
+  'wisconsin': 'wi', 'wyoming': 'wy', 'district of columbia': 'dc'
+};
+
+// Create reverse mapping (abbreviation -> full name)
+const US_STATE_ABBREV_TO_NAME = Object.fromEntries(
+  Object.entries(US_STATE_MAPPINGS).map(([name, abbr]) => [abbr, name])
+);
+
+/**
+ * Get all variations of a US state name for matching
+ */
+function getStateVariations(stateHint) {
+  const hint = stateHint.toLowerCase().trim();
+  const variations = [hint];
+  
+  // If it's a full state name, add the abbreviation
+  if (US_STATE_MAPPINGS[hint]) {
+    variations.push(US_STATE_MAPPINGS[hint]);
+  }
+  
+  // If it's an abbreviation, add the full name
+  if (US_STATE_ABBREV_TO_NAME[hint]) {
+    variations.push(US_STATE_ABBREV_TO_NAME[hint]);
+  }
+  
+  return variations;
+}
+
 // Helper function to find destination match
 function findDestinationMatch(destinations, query, stateContext = null, countryHint = null) {
   // Try exact match first
@@ -356,19 +398,36 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // Multiple matches - try to disambiguate
   logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
   
-  // If we have a country hint, try to find a match whose ancestry includes that country
+  // If we have a country/state hint, try to find a match whose ancestry includes it
   if (countryHint) {
-    // Get all possible country names to match against
-    const countryNames = [countryHint];
+    // Get all possible names to match against (country aliases + US state variations)
+    const hintVariations = [countryHint];
+    
+    // Add country aliases
     if (COUNTRY_ALIASES[countryHint]) {
-      countryNames.push(...COUNTRY_ALIASES[countryHint]);
+      hintVariations.push(...COUNTRY_ALIASES[countryHint]);
+    }
+    
+    // Add US state variations (e.g., "new jersey" -> also check "nj")
+    const stateVariations = getStateVariations(countryHint);
+    hintVariations.push(...stateVariations);
+    
+    logger.info(`Disambiguation hints for "${countryHint}": ${hintVariations.join(', ')}`);
+    
+    // FIRST: Check if any match has the hint in its own name (e.g., "Ocean City, NJ")
+    for (const match of matches) {
+      const destName = (match.destinationName || match.name || '').toLowerCase();
+      if (hintVariations.some(hint => destName.includes(hint))) {
+        logger.info(`Disambiguated to "${match.name}" based on destination name containing hint "${countryHint}"`);
+        return match;
+      }
     }
     
     // Build destination map for ancestry lookup
     const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
     for (const match of matches) {
-      // Check the ancestry of this destination for the country hint
+      // Check the ancestry of this destination for the hint
       let currentDest = match;
       let depth = 0;
       const maxDepth = 5; // Prevent infinite loops
@@ -376,9 +435,9 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       while (currentDest && depth < maxDepth) {
         const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
         
-        // Check if any parent matches the country hint
-        if (countryNames.some(cn => parentName.includes(cn))) {
-          logger.info(`Disambiguated to "${match.name}" based on country hint "${countryHint}" (matched parent: ${parentName})`);
+        // Check if any parent matches the hint variations
+        if (hintVariations.some(hint => parentName.includes(hint))) {
+          logger.info(`Disambiguated to "${match.name}" based on hint "${countryHint}" (matched parent: ${parentName})`);
           return match;
         }
         
@@ -392,14 +451,14 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    // Also check if any match has the country in its parent name directly
+    // Also check if any match has the hint in its parent name directly
     for (const match of matches) {
       const parentId = match.parentDestinationId;
       if (parentId) {
         const parent = destMap.get(parentId);
         if (parent) {
           const parentName = (parent.destinationName || parent.name || '').toLowerCase();
-          if (countryNames.some(cn => parentName.includes(cn))) {
+          if (hintVariations.some(hint => parentName.includes(hint))) {
             logger.info(`Disambiguated to "${match.name}" based on direct parent match "${parentName}"`);
             return match;
           }
@@ -407,7 +466,7 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    logger.info(`Country hint "${countryHint}" did not help disambiguate`);
+    logger.info(`Hint "${countryHint}" did not help disambiguate`);
   }
   
   // If we have state context, prefer match with correct parent
