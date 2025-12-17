@@ -13,20 +13,20 @@ import { logger } from '../utils/logger.js';
 // ==========================================================================
 
 // --------------------------------------------------------------------------
-// OPTION A: GEMINI (commented out)
+// OPTION A: GEMINI
 // --------------------------------------------------------------------------
-// import { GoogleGenerativeAI } from '@google/generative-ai';
-// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// const AI_PROVIDER = 'gemini';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const AI_PROVIDER = 'gemini';
 
 // --------------------------------------------------------------------------
-// OPTION B: CLAUDE (currently active)
+// OPTION B: CLAUDE
 // --------------------------------------------------------------------------
-import Anthropic from '@anthropic-ai/sdk';
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
-const AI_PROVIDER = 'claude';
+// import Anthropic from '@anthropic-ai/sdk';
+// const anthropic = new Anthropic({
+//   apiKey: process.env.ANTHROPIC_API_KEY
+// });
+// const AI_PROVIDER = 'claude';
 
 // ============================================================================
 // GOOGLE CLOUD VISION - LANDMARK & WEB DETECTION
@@ -189,50 +189,50 @@ async function lookupPlace(searchQuery) {
 }
 
 // ============================================================================
-// CLAUDE - ENHANCED AI IMAGE ANALYSIS (currently active)
+// CLAUDE - ENHANCED AI IMAGE ANALYSIS 
 // ============================================================================
 
-async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-  try {
-    logger.info('Analyzing image with Claude for location identification...');
+// async function analyzeImageWithClaude(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+//   try {
+//     logger.info('Analyzing image with Claude for location identification...');
 
-    // Build rich context from Vision API results
-    let contextHints = '';
+//     // Build rich context from Vision API results
+//     let contextHints = '';
     
-    if (visionContext.landmarks?.length > 0) {
-      const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}% confidence)`).join(', ');
-      contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
-    }
+//     if (visionContext.landmarks?.length > 0) {
+//       const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}% confidence)`).join(', ');
+//       contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
+//     }
     
-    if (visionContext.bestGuessLabels?.length > 0) {
-      contextHints += `\n- WEB IMAGE SEARCH suggests this might be: ${visionContext.bestGuessLabels.join(', ')}`;
-    }
+//     if (visionContext.bestGuessLabels?.length > 0) {
+//       contextHints += `\n- WEB IMAGE SEARCH suggests this might be: ${visionContext.bestGuessLabels.join(', ')}`;
+//     }
     
-    if (visionContext.webEntities?.length > 0) {
-      const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
-      contextHints += `\n- RELATED ENTITIES from web: ${topEntities}`;
-    }
+//     if (visionContext.webEntities?.length > 0) {
+//       const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
+//       contextHints += `\n- RELATED ENTITIES from web: ${topEntities}`;
+//     }
 
-    if (visionContext.pagesWithMatchingImages?.length > 0) {
-      const pageTitles = visionContext.pagesWithMatchingImages
-        .filter(p => p.title)
-        .slice(0, 3)
-        .map(p => p.title)
-        .join('; ');
-      if (pageTitles) {
-        contextHints += `\n- WEB PAGES with similar images: ${pageTitles}`;
-      }
-    }
+//     if (visionContext.pagesWithMatchingImages?.length > 0) {
+//       const pageTitles = visionContext.pagesWithMatchingImages
+//         .filter(p => p.title)
+//         .slice(0, 3)
+//         .map(p => p.title)
+//         .join('; ');
+//       if (pageTitles) {
+//         contextHints += `\n- WEB PAGES with similar images: ${pageTitles}`;
+//       }
+//     }
     
-    if (visionContext.detectedText) {
-      const cleanText = visionContext.detectedText.substring(0, 300).replace(/\n/g, ' ');
-      contextHints += `\n- TEXT VISIBLE IN IMAGE: "${cleanText}"`;
-    }
+//     if (visionContext.detectedText) {
+//       const cleanText = visionContext.detectedText.substring(0, 300).replace(/\n/g, ' ');
+//       contextHints += `\n- TEXT VISIBLE IN IMAGE: "${cleanText}"`;
+//     }
 
-    if (visionContext.labels?.length > 0) {
-      const topLabels = visionContext.labels.slice(0, 6).map(l => l.name).join(', ');
-      contextHints += `\n- SCENE LABELS: ${topLabels}`;
-    }
+//     if (visionContext.labels?.length > 0) {
+//       const topLabels = visionContext.labels.slice(0, 6).map(l => l.name).join(', ');
+//       contextHints += `\n- SCENE LABELS: ${topLabels}`;
+//     }
 
     const prompt = `You are an expert travel destination identifier with encyclopedic knowledge of world landmarks, cities, architecture, landscapes, and cultural sites.
 
@@ -378,59 +378,59 @@ If you truly cannot identify the location (generic indoor shot, too blurry, no d
 }
 
 // ============================================================================
-// GEMINI - AI IMAGE ANALYSIS (commented out - uncomment to use)
+// GEMINI - ENHANCED AI IMAGE ANALYSIS 
 // ============================================================================
 
-// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
-//   try {
-//     logger.info('Analyzing image with Gemini for location identification...');
-//
-//     const model = genAI.getGenerativeModel({
-//       model: 'gemini-2.0-flash-exp',
-//       generationConfig: {
-//         temperature: 0.2,
-//         maxOutputTokens: 1000,
-//       }
-//     });
-//
-//     // Build context hints (same structure as Claude)
-//     let contextHints = '';
-//     if (visionContext.landmarks?.length > 0) {
-//       const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}%)`).join(', ');
-//       contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
-//     }
-//     if (visionContext.bestGuessLabels?.length > 0) {
-//       contextHints += `\n- WEB IMAGE SEARCH suggests: ${visionContext.bestGuessLabels.join(', ')}`;
-//     }
-//     if (visionContext.webEntities?.length > 0) {
-//       const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
-//       contextHints += `\n- RELATED ENTITIES: ${topEntities}`;
-//     }
-//     if (visionContext.detectedText) {
-//       contextHints += `\n- TEXT VISIBLE: "${visionContext.detectedText.substring(0, 300)}"`;
-//     }
-//
-//     const prompt = `You are an expert travel destination identifier...`; // Same prompt as Claude
-//
-//     const imagePart = {
-//       inlineData: {
-//         data: imageBase64,
-//         mimeType: mediaType
-//       }
-//     };
-//
-//     const result = await model.generateContent([prompt, imagePart]);
-//     const responseText = result.response.text().trim();
-//
-//     let jsonText = responseText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
-//     const analysis = JSON.parse(jsonText);
-//
-//     return { success: analysis.identified, ...analysis };
-//   } catch (error) {
-//     logger.error('Gemini image analysis error:', error);
-//     return { success: false, identified: false, error: error.message };
-//   }
-// }
+async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+  try {
+    logger.info('Analyzing image with Gemini for location identification...');
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 1000,
+      }
+    });
+
+    // Build context hints (same structure as Claude)
+    let contextHints = '';
+    if (visionContext.landmarks?.length > 0) {
+      const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}%)`).join(', ');
+      contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
+    }
+    if (visionContext.bestGuessLabels?.length > 0) {
+      contextHints += `\n- WEB IMAGE SEARCH suggests: ${visionContext.bestGuessLabels.join(', ')}`;
+    }
+    if (visionContext.webEntities?.length > 0) {
+      const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
+      contextHints += `\n- RELATED ENTITIES: ${topEntities}`;
+    }
+    if (visionContext.detectedText) {
+      contextHints += `\n- TEXT VISIBLE: "${visionContext.detectedText.substring(0, 300)}"`;
+    }
+
+    const prompt = `You are an expert travel destination identifier...`; // Same prompt as Claude
+
+    const imagePart = {
+      inlineData: {
+        data: imageBase64,
+        mimeType: mediaType
+      }
+    };
+
+    const result = await model.generateContent([prompt, imagePart]);
+    const responseText = result.response.text().trim();
+
+    let jsonText = responseText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
+    const analysis = JSON.parse(jsonText);
+
+    return { success: analysis.identified, ...analysis };
+  } catch (error) {
+    logger.error('Gemini image analysis error:', error);
+    return { success: false, identified: false, error: error.message };
+  }
+}
 
 // ============================================================================
 // AI ANALYSIS ROUTER - Routes to active provider
