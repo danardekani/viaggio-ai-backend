@@ -339,9 +339,7 @@ const US_STATE_MAPPINGS = {
 };
 
 // Nearby destination fallbacks for cities that don't exist in Viator
-// Maps city names to nearby alternatives that DO exist in Viator
 const NEARBY_DESTINATION_FALLBACKS = {
-  // New Jersey Shore towns -> Atlantic City (the main NJ beach destination in Viator)
   'ocean city': ['Atlantic City', 'Philadelphia'],
   'wildwood': ['Atlantic City', 'Philadelphia'],
   'cape may': ['Atlantic City', 'Philadelphia'],
@@ -349,7 +347,6 @@ const NEARBY_DESTINATION_FALLBACKS = {
   'point pleasant': ['Atlantic City', 'Philadelphia'],
   'long beach island': ['Atlantic City', 'Philadelphia'],
   'asbury park': ['Atlantic City', 'Philadelphia'],
-  // Other common fallbacks
   'hoboken': ['New York City', 'Jersey City'],
   'jersey city': ['New York City'],
   'newark': ['New York City'],
@@ -367,12 +364,10 @@ function getStateVariations(stateHint) {
   const hint = stateHint.toLowerCase().trim();
   const variations = [hint];
   
-  // If it's a full state name, add the abbreviation
   if (US_STATE_MAPPINGS[hint]) {
     variations.push(US_STATE_MAPPINGS[hint]);
   }
   
-  // If it's an abbreviation, add the full name
   if (US_STATE_ABBREV_TO_NAME[hint]) {
     variations.push(US_STATE_ABBREV_TO_NAME[hint]);
   }
@@ -453,20 +448,15 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       logger.info(`Single match "${match.name}" verified against hint "${countryHint}"`);
       return match;
     } else {
-      // Single match doesn't match the hint - this is likely wrong!
-      // Try to find the state/region as a destination instead
       logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
       
-      // Split the hint by comma to get individual parts (e.g., "new jersey, united states" -> ["new jersey", "united states"])
       const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
       
-      // Build expanded hint variations including split parts
       const expandedHints = [...hintVariations];
       for (const part of hintParts) {
         if (!expandedHints.includes(part)) {
           expandedHints.push(part);
         }
-        // Add state variations for each part
         const partVariations = getStateVariations(part);
         for (const v of partVariations) {
           if (!expandedHints.includes(v)) {
@@ -477,8 +467,7 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       
       logger.info(`Searching for fallback with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
       
-      // FIRST: Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
-      // This gives more relevant results than falling back to entire state
+      // Check for known nearby destination fallbacks
       const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
       if (nearbyFallbacks) {
         for (const fallbackName of nearbyFallbacks) {
@@ -493,10 +482,8 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         }
       }
       
-      // SECOND: Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
-      // This is a broader fallback if no nearby city is available
+      // Try to find the hinted region as a destination
       for (const hintVar of expandedHints) {
-        // Skip very short or generic terms
         if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
         
         const regionMatch = destinations.find(d => {
@@ -509,7 +496,6 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         }
       }
       
-      // No better match found, return the original with a warning logged
       logger.warn(`Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`);
       return match;
     }
@@ -522,23 +508,19 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // Multiple matches - try to disambiguate
   logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
   
-  // If we have a country/state hint, try to find a match whose ancestry includes it
   if (countryHint) {
-    // Get all possible names to match against (country aliases + US state variations)
     const hintVariations = [countryHint];
     
-    // Add country aliases
     if (COUNTRY_ALIASES[countryHint]) {
       hintVariations.push(...COUNTRY_ALIASES[countryHint]);
     }
     
-    // Add US state variations (e.g., "new jersey" -> also check "nj")
     const stateVariations = getStateVariations(countryHint);
     hintVariations.push(...stateVariations);
     
     logger.info(`Disambiguation hints for "${countryHint}": ${hintVariations.join(', ')}`);
     
-    // FIRST: Check if any match has the hint in its own name (e.g., "Ocean City, NJ")
+    // Check if any match has the hint in its own name
     for (const match of matches) {
       const destName = (match.destinationName || match.name || '').toLowerCase();
       if (hintVariations.some(hint => destName.includes(hint))) {
@@ -547,25 +529,21 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    // Build destination map for ancestry lookup
     const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
     for (const match of matches) {
-      // Check the ancestry of this destination for the hint
       let currentDest = match;
       let depth = 0;
-      const maxDepth = 5; // Prevent infinite loops
+      const maxDepth = 5;
       
       while (currentDest && depth < maxDepth) {
         const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
         
-        // Check if any parent matches the hint variations
         if (hintVariations.some(hint => parentName.includes(hint))) {
           logger.info(`Disambiguated to "${match.name}" based on hint "${countryHint}" (matched parent: ${parentName})`);
           return match;
         }
         
-        // Move up the ancestry chain
         if (currentDest.parentDestinationId) {
           currentDest = destMap.get(currentDest.parentDestinationId);
         } else {
@@ -575,7 +553,7 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    // Also check if any match has the hint in its parent name directly
+    // Check direct parent
     for (const match of matches) {
       const parentId = match.parentDestinationId;
       if (parentId) {
@@ -602,15 +580,12 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
     }
   }
   
-  // Prefer destinations with higher lookup frequency (major cities tend to have lower IDs in Viator)
-  // Also prefer CITY type over REGION or other types
+  // Prefer CITY type, then lower IDs
   matches.sort((a, b) => {
-    // Prefer CITY type
     const aIsCity = a.type === 'CITY' ? 1 : 0;
     const bIsCity = b.type === 'CITY' ? 1 : 0;
     if (aIsCity !== bIsCity) return bIsCity - aIsCity;
     
-    // Prefer lower IDs (generally more popular destinations)
     return (a.destinationId || 999999) - (b.destinationId || 999999);
   });
   
@@ -685,7 +660,7 @@ function applyFilters(filtering, options) {
  * @param {string} params.destination - City name
  * @param {string} params.destinationId - Optional destination ID (skips name lookup if provided)
  * @param {string} params.searchTerms - Keywords to filter by
- * @param {number} params.resultCount - Number of results (default 10, no max - fetches all)
+ * @param {number} params.resultCount - Number of results (default 10, max ~500)
  * @param {string} params.sortBy - Sort option
  * @param {string} params.startDate - Optional start date (YYYY-MM-DD)
  * @param {string} params.endDate - Optional end date (YYYY-MM-DD)
@@ -698,7 +673,7 @@ function applyFilters(filtering, options) {
  */
 export async function searchTours({ 
   destination, 
-  destinationId = null,  // NEW: Accept destination ID directly
+  destinationId = null,
   searchTerms = '', 
   resultCount = 10,
   sortBy = 'popular',
@@ -723,12 +698,12 @@ export async function searchTours({
   if (minDuration || maxDuration) filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
   if (minRating) filterSummary.push(`rating: ${minRating}+`);
 
-  logger.info(`Searching ALL tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
+  logger.info(`Searching tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
 
   try {
     const filterOptions = { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating };
     
-    // Use searchByDestinationId for all searches - it handles pagination to get ALL results
+    // Use searchByDestinationId for all searches - it handles pagination with limits
     return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions, destinationId);
 
   } catch (error) {
@@ -738,7 +713,9 @@ export async function searchTours({
 }
 
 // ============================================================================
-// SEARCH BY DESTINATION ID (Fallback with optional filtering)
+// SEARCH BY DESTINATION ID - WITH PAGINATION LIMITS
+// ============================================================================
+// FIXED: Now limits to 500 results max (10 pages) instead of fetching ALL tours
 // ============================================================================
 
 async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}, providedDestinationId = null) {
@@ -752,25 +729,32 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     destInfo = await findDestination(destination);
     if (!destInfo) {
       logger.warn(`Destination not found: ${destination}`);
-      return [];
+      return { tours: [], totalCount: 0, hasMore: false, fetchedCount: 0 };
     }
   }
 
   const tags = getTagsFromSearchTerms(filterTerms);
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
-  const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
-  const MAX_RESULTS = 5000; // Safety limit to prevent runaway requests
   
-  logger.info(`Searching ALL tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
+  // =========================================================================
+  // PAGINATION LIMITS - THE FIX!
+  // =========================================================================
+  const PAGE_SIZE = 50;      // Viator API max per request
+  const MAX_RESULTS = 500;   // Cap at 500 results (was 5000!)
+  const MAX_PAGES = 10;      // Maximum 10 pages (was unlimited!)
+  // =========================================================================
+  
+  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}, max=${MAX_RESULTS}`);
 
   let allProducts = [];
   let currentStart = 1;
   let totalCount = 0;
   let hasMore = true;
+  let pagesFetched = 0;
 
-  // Fetch ALL pages of results until we have everything
-  while (hasMore && allProducts.length < MAX_RESULTS) {
+  // Fetch pages until we hit our limits
+  while (hasMore && allProducts.length < MAX_RESULTS && pagesFetched < MAX_PAGES) {
     const searchBody = {
       filtering: {
         destination: destInfo.id
@@ -802,7 +786,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(`Viator search error (page ${currentPage}): ${response.status} - ${errorText}`);
+      logger.error(`Viator search error (page ${pagesFetched + 1}): ${response.status} - ${errorText}`);
       break;
     }
 
@@ -811,18 +795,21 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     totalCount = data.totalCount || 0;
 
     allProducts = [...allProducts, ...pageProducts];
+    pagesFetched++;
     
-    const pageNum = Math.ceil(currentStart / PAGE_SIZE);
-    logger.info(`Page ${pageNum}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
+    logger.info(`Page ${pagesFetched}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
 
-    // Check if there are more results
-    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+    // Check if there are more results AND we haven't hit our limits
+    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < totalCount && allProducts.length < MAX_RESULTS && pagesFetched < MAX_PAGES;
     currentStart += PAGE_SIZE;
   }
 
-  logger.info(`Fetched ${allProducts.length} total tours for ${destination} (API reported ${totalCount} available)`);
+  // Calculate if there are more results available beyond what we fetched
+  const moreAvailable = totalCount > allProducts.length;
+  
+  logger.info(`Fetched ${allProducts.length} tours for ${destination} in ${pagesFetched} pages (${totalCount} total available, hasMore: ${moreAvailable})`);
 
-  // If tag filtering returned 0 results, try again without tags
+  // If tag filtering returned 0 results, try again without tags (but still with limits)
   if (allProducts.length === 0 && tags.length > 0) {
     logger.info(`No results with tags, retrying without tag filter`);
     
@@ -840,11 +827,12 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
     applyFilters(retryBody.filtering, filterOptions);
 
-    // Fetch ALL pages without tags
+    // Fetch with limits
     let retryStart = 1;
     let retryHasMore = true;
+    let retryPages = 0;
     
-    while (retryHasMore && allProducts.length < MAX_RESULTS) {
+    while (retryHasMore && allProducts.length < MAX_RESULTS && retryPages < MAX_PAGES) {
       retryBody.pagination.start = retryStart;
       
       const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
@@ -864,14 +852,15 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
         totalCount = retryData.totalCount || 0;
         
         allProducts = [...allProducts, ...retryProducts];
-        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+        retryPages++;
+        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < totalCount && allProducts.length < MAX_RESULTS && retryPages < MAX_PAGES;
         retryStart += PAGE_SIZE;
       } else {
         break;
       }
     }
     
-    logger.info(`Retry without tags found ${allProducts.length} total tours`);
+    logger.info(`Retry without tags found ${allProducts.length} total tours in ${retryPages} pages`);
   }
 
   let products = allProducts;
@@ -915,8 +904,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     logger.warn(`Only transfers found for ${destination}, no actual tours available`);
   }
 
-  // Return ALL results (no slicing)
-  return products.map(p => formatTourResult(p));
+  // Format and return with metadata
+  const formattedTours = products.map(p => formatTourResult(p));
+  
+  // Return object with metadata about total available
+  return {
+    tours: formattedTours,
+    totalCount: totalCount,           // Total available from Viator
+    hasMore: totalCount > formattedTours.length,  // Are there more results?
+    fetchedCount: formattedTours.length  // How many we actually fetched
+  };
 }
 
 // ============================================================================
@@ -948,148 +945,42 @@ export async function getTourDetails(productCode) {
 function formatTourResult(product) {
   const price = product.pricing?.summary?.fromPrice || 0;
   
-  // Check for original price before discount (for special offers)
-  const originalPrice = product.pricing?.summary?.fromPriceBeforeDiscount || null;
-  const hasDiscount = originalPrice && originalPrice > price;
-
-  // Determine pricing type - crucial for correct price display
-  // Viator uses: TRAVELLER (per person), UNIT (per group/vehicle), etc.
-  // If pricingUnit is UNIT or if it's a private tour, it's likely per-group pricing
-  const pricingUnit = product.pricing?.summary?.pricingUnit || 
-                      product.pricingInfo?.type || 
-                      'TRAVELLER'; // Default to per-person
-  
-  // Also check if tour name suggests it's a private/group tour
-  const title = (product.title || '').toLowerCase();
-  const isPrivateTour = title.includes('private') || 
-                        title.includes('per group') ||
-                        title.includes('per vehicle') ||
-                        title.includes('charter');
-  
-  // Determine if price is per person or per group
-  const isPerPerson = pricingUnit === 'TRAVELLER' || 
-                      pricingUnit === 'PER_PERSON' ||
-                      pricingUnit === 'PERSON';
-  const isPerGroup = pricingUnit === 'UNIT' || 
-                     pricingUnit === 'PER_GROUP' ||
-                     pricingUnit === 'GROUP' ||
-                     pricingUnit === 'VEHICLE' ||
-                     isPrivateTour;
-  
-  // Final pricing type: 'person' or 'group'
-  const pricingType = isPerGroup ? 'group' : 'person';
-  
-  // Get max group size if available (for per-group pricing)
-  const maxGroupSize = product.pricing?.summary?.paxRange?.max || 
-                       product.pricingInfo?.groupPricing?.maxGroupSize ||
-                       null;
-
-  // Duration - handle various formats
   let duration = 'Varies';
-  let durationMinutes = null;
   if (product.duration?.fixedDurationInMinutes) {
-    durationMinutes = product.duration.fixedDurationInMinutes;
-    const hours = Math.floor(durationMinutes / 60);
-    const mins = durationMinutes % 60;
+    const hours = Math.floor(product.duration.fixedDurationInMinutes / 60);
+    const mins = product.duration.fixedDurationInMinutes % 60;
     if (hours === 0) duration = `${mins} minutes`;
-    else if (mins === 0) duration = `${hours} hour${hours > 1 ? 's' : ''}`;
+    else if (mins === 0) duration = `${hours} hours`;
     else duration = `${hours}h ${mins}m`;
-  } else if (product.duration?.variableDurationFromMinutes) {
-    const fromMins = product.duration.variableDurationFromMinutes;
-    const toMins = product.duration.variableDurationToMinutes;
-    const fromHours = Math.floor(fromMins / 60);
-    const toHours = Math.floor(toMins / 60);
-    duration = `${fromHours}-${toHours} hours`;
-    durationMinutes = fromMins;
   }
 
   const rating = product.reviews?.combinedAverageRating?.toFixed(1) || 'New';
   const reviewCount = product.reviews?.totalReviews || 0;
 
-  // Get multiple images for gallery
-  let images = [];
-  if (product.images && product.images.length > 0) {
-    images = product.images.slice(0, 6).map(img => {
-      const variant = img.variants?.find(v => v.width >= 400 && v.width <= 720) ||
-                      img.variants?.[img.variants.length - 1];
-      return variant?.url;
-    }).filter(Boolean);
+  let image = null;
+  if (product.images?.[0]?.variants) {
+    const variant = product.images[0].variants.find(v => v.width >= 400 && v.width <= 720) ||
+                    product.images[0].variants[product.images[0].variants.length - 1];
+    image = variant?.url;
   }
-  const image = images[0] || null;
 
   const productCode = product.productCode;
   const bookingLink = product.productUrl || buildAffiliateLink(productCode);
-
-  // Helper to safely extract string from potentially nested objects
-  const extractString = (value) => {
-    if (!value) return null;
-    if (typeof value === 'string') return value;
-    if (typeof value === 'object') {
-      // Handle {type, description} or {description} objects
-      return value.description || value.otherDescription || value.typeDescription || value.name || value.type || JSON.stringify(value);
-    }
-    return String(value);
-  };
-
-  // Extract highlights/inclusions - handle nested objects
-  const inclusions = product.inclusions?.map(i => {
-    const desc = i.otherDescription || i.typeDescription || i.description || i;
-    return extractString(desc);
-  }).filter(Boolean) || [];
-  
-  const exclusions = product.exclusions?.map(e => {
-    const desc = e.otherDescription || e.typeDescription || e.description || e;
-    return extractString(desc);
-  }).filter(Boolean) || [];
-  
-  // Extract itinerary/highlights
-  const itinerary = product.itinerary?.itineraryItems?.map(item => ({
-    name: extractString(item.pointOfInterestLocation?.location?.name || item.description),
-    description: extractString(item.description),
-    duration: item.duration?.fixedDurationInMinutes
-  })) || [];
-
-  // Additional info - ensure all items are strings
-  const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
-  
-  const cancellationPolicy = product.cancellationPolicy?.type || null;
-  
-  // Languages - handle potential object format
-  const languages = product.languageGuides?.map(lg => {
-    if (typeof lg === 'string') return lg;
-    return lg.language || lg.name || extractString(lg);
-  }).filter(Boolean) || [];
 
   return {
     id: productCode,
     name: product.title,
     description: product.description || '',
     duration,
-    durationMinutes,
     rating,
     reviewCount,
     price,
-    originalPrice,      // Original price before discount (null if no discount)
-    hasDiscount,        // True if this tour has a special offer discount
     currency: 'USD',
     image,
-    images,             // Array of image URLs for gallery
     flags: product.flags || [],
     bookingLink,
     link: bookingLink,
-    productCode,
-    // Pricing type information
-    pricingType,        // 'person' or 'group'
-    pricingUnit,        // Raw value from API
-    maxGroupSize,       // Max travelers for group pricing
-    isPrivateTour,      // True if name suggests private tour
-    // Additional details for modal
-    inclusions,
-    exclusions,
-    itinerary,
-    additionalInfo,
-    cancellationPolicy,
-    languages
+    productCode
   };
 }
 
@@ -1101,6 +992,12 @@ function buildAffiliateLink(productCode) {
     api_version: '2.0'
   });
   return `https://www.viator.com/tours/${productCode}?${params.toString()}`;
+}
+
+function truncateText(text, maxLength) {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength).trim() + '...';
 }
 
 // ============================================================================
@@ -1133,6 +1030,10 @@ export async function debugSearchDestinations(query) {
 // FREETEXT SEARCH (AUTOCOMPLETE)
 // ============================================================================
 
+/**
+ * Search for destinations using Viator's freetext search API
+ * This provides real-time autocomplete suggestions as users type
+ */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
     return [];
@@ -1144,12 +1045,8 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     const allDestinations = await fetchDestinations();
     const destMap = new Map(allDestinations.map(d => [d.destinationId, d]));
     
-    // Strategy: Combine Viator freetext API with local cache search
-    // This ensures we find multiple cities with the same name (Paris, France vs Paris, Texas)
-    
     let apiResults = [];
     
-    // Try the Viator freetext API first
     try {
       const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
         method: 'POST',
@@ -1200,33 +1097,28 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     }
     
     // Also search local cache for additional matches
-    // This catches cities the API might miss (like Paris, Texas)
     const searchLower = searchTerm.toLowerCase();
     
     const cacheResults = allDestinations
       .filter(d => {
         if (!d.name) return false;
         const nameLower = d.name.toLowerCase();
-        // Match if name starts with search term or equals it exactly
         return nameLower.startsWith(searchLower) || nameLower === searchLower;
       })
       .map(d => {
         const nameLower = d.name.toLowerCase();
         let score = 0;
         
-        // Exact match gets highest score
         if (nameLower === searchLower) score = 100;
-        // Starts with search term
         else if (nameLower.startsWith(searchLower)) score = 80;
         
-        // Boost cities over regions/countries
         if (d.type === 'CITY') score += 15;
         else if (d.type === 'REGION') score += 5;
         
         return { ...d, score };
       })
       .sort((a, b) => b.score - a.score)
-      .slice(0, limit * 2) // Get extra for deduplication
+      .slice(0, limit * 2)
       .map(d => {
         const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
         
@@ -1241,11 +1133,9 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       });
     
     // Merge and deduplicate results
-    // Prefer API results, then add unique cache results
     const seenIds = new Set();
     const mergedResults = [];
     
-    // Add API results first (higher quality matching)
     for (const result of apiResults) {
       if (!seenIds.has(result.destinationId)) {
         seenIds.add(result.destinationId);
@@ -1253,7 +1143,6 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       }
     }
     
-    // Add cache results that weren't in API results
     for (const result of cacheResults) {
       if (!seenIds.has(result.destinationId) && mergedResults.length < limit) {
         seenIds.add(result.destinationId);
@@ -1261,7 +1150,6 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       }
     }
     
-    // Remove the source field before returning
     const finalResults = mergedResults.slice(0, limit).map(({ source, ...rest }) => rest);
 
     logger.info(`Autocomplete found ${finalResults.length} destinations for "${searchTerm}" (API: ${apiResults.length}, Cache: ${cacheResults.length})`);
@@ -1275,37 +1163,25 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 
 /**
  * Build a user-friendly display name for a destination
- * - Country: "France"
- * - Region: "Tuscany, Italy"
- * - City: "Paris, France" (not "Paris, Ile-de-France")
- * - Town/District: "Oia, Santorini, Greece"
  */
 function buildDisplayName(name, destId, destType, destMap) {
-  // Get the full ancestry chain for this destination
   const ancestry = getDestinationAncestry(destId, destMap);
   
-  // Find the country (type === 'COUNTRY') in the ancestry
   const country = ancestry.find(d => d.type === 'COUNTRY');
   const countryName = country?.name || null;
   
-  // Handle different destination types
   if (destType === 'COUNTRY') {
-    // Countries just show their name
     return name;
   }
   
   if (destType === 'REGION' || destType === 'STATE') {
-    // Regions show: "Region, Country"
     return countryName ? `${name}, ${countryName}` : name;
   }
   
   if (destType === 'CITY') {
-    // Cities show: "City, Country"
     return countryName ? `${name}, ${countryName}` : name;
   }
   
-  // For towns, districts, or other sub-city types, show: "Town, City, Country"
-  // Find the parent city in ancestry
   const parentCity = ancestry.find(d => d.type === 'CITY');
   
   if (parentCity && countryName) {
@@ -1314,7 +1190,6 @@ function buildDisplayName(name, destId, destType, destMap) {
     return `${name}, ${countryName}`;
   }
   
-  // Fallback: just use the immediate parent if we have one
   const cachedDest = destMap.get(destId);
   if (cachedDest?.parentDestinationId) {
     const parent = destMap.get(cachedDest.parentDestinationId);
@@ -1327,7 +1202,7 @@ function buildDisplayName(name, destId, destType, destMap) {
 }
 
 /**
- * Get the ancestry chain for a destination (parent, grandparent, etc.)
+ * Get the ancestry chain for a destination
  */
 function getDestinationAncestry(destId, destMap, maxDepth = 5) {
   const ancestry = [];
@@ -1338,7 +1213,6 @@ function getDestinationAncestry(destId, destMap, maxDepth = 5) {
     const dest = destMap.get(currentId);
     if (!dest) break;
     
-    // Don't include the destination itself, only its ancestors
     if (dest.parentDestinationId) {
       const parent = destMap.get(dest.parentDestinationId);
       if (parent) {
