@@ -406,68 +406,101 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // If we have a hint, verify even single matches
   if (matches.length === 1 && countryHint) {
     const match = matches[0];
-    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
-    // Get hint variations
-    const hintVariations = [countryHint];
-    if (COUNTRY_ALIASES[countryHint]) {
-      hintVariations.push(...COUNTRY_ALIASES[countryHint]);
+    // FIXED: Normalize all IDs to strings for consistent map lookups
+    const destMap = new Map(destinations.map(d => [String(d.destinationId), d]));
+    
+    // Split hint into parts first (e.g., "sicily, italy" -> ["sicily", "italy"])
+    const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+    
+    // Build all hint variations including each part separately
+    const hintVariations = new Set([countryHint]);
+    
+    for (const part of hintParts) {
+      hintVariations.add(part);
+      
+      // Add country aliases
+      if (COUNTRY_ALIASES[part]) {
+        COUNTRY_ALIASES[part].forEach(alias => hintVariations.add(alias));
+      }
+      
+      // Add US state variations
+      const stateVars = getStateVariations(part);
+      stateVars.forEach(v => hintVariations.add(v));
     }
-    const stateVariations = getStateVariations(countryHint);
-    hintVariations.push(...stateVariations);
+    
+    // Also add variations for the full hint
+    if (COUNTRY_ALIASES[countryHint]) {
+      COUNTRY_ALIASES[countryHint].forEach(alias => hintVariations.add(alias));
+    }
+    
+    const hintArray = Array.from(hintVariations);
+    logger.info(`Verifying "${match.name}" against hints: [${hintArray.slice(0, 8).join(', ')}${hintArray.length > 8 ? '...' : ''}]`);
     
     // Check if this single match actually matches the hint
     let matchesHint = false;
+    let matchedVia = '';
     
     // Check destination name itself
     const destName = (match.destinationName || match.name || '').toLowerCase();
-    if (hintVariations.some(hint => destName.includes(hint))) {
-      matchesHint = true;
+    for (const hint of hintArray) {
+      if (destName.includes(hint)) {
+        matchesHint = true;
+        matchedVia = `destination name contains "${hint}"`;
+        break;
+      }
     }
     
-    // Check ancestry
+    // Check ancestry chain - FIXED: proper parent traversal with string IDs
     if (!matchesHint) {
-      let currentDest = match;
+      // Start from the match and traverse UP the parent chain
+      let currentId = String(match.parentDestinationId);
       let depth = 0;
-      while (currentDest && depth < 5) {
-        const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
-        if (hintVariations.some(hint => parentName.includes(hint))) {
-          matchesHint = true;
+      const visitedIds = new Set([String(match.destinationId)]); // Prevent loops
+      
+      while (currentId && depth < 10) {
+        const parentDest = destMap.get(currentId);
+        
+        if (!parentDest) {
+          logger.info(`  Ancestry depth ${depth}: parent ID ${currentId} not found in map`);
           break;
         }
-        if (currentDest.parentDestinationId) {
-          currentDest = destMap.get(currentDest.parentDestinationId);
-        } else {
+        
+        if (visitedIds.has(currentId)) {
+          logger.warn(`  Ancestry loop detected at ID ${currentId}`);
           break;
         }
+        visitedIds.add(currentId);
+        
+        const parentName = (parentDest.destinationName || parentDest.name || '').toLowerCase();
+        logger.info(`  Ancestry depth ${depth}: "${parentDest.name}" (ID: ${currentId})`);
+        
+        // Check if ANY hint matches this ancestor
+        for (const hint of hintArray) {
+          if (parentName.includes(hint) || parentName === hint) {
+            matchesHint = true;
+            matchedVia = `parent "${parentDest.name}" matches hint "${hint}"`;
+            break;
+          }
+        }
+        
+        if (matchesHint) break;
+        
+        // Move to next parent - FIXED: convert to string
+        currentId = parentDest.parentDestinationId ? String(parentDest.parentDestinationId) : null;
         depth++;
       }
     }
     
     if (matchesHint) {
-      logger.info(`Single match "${match.name}" verified against hint "${countryHint}"`);
+      logger.info(`✓ Verified "${match.name}" (ID: ${match.destinationId}) - ${matchedVia}`);
       return match;
     } else {
-      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
+      // Match doesn't appear to be in the hinted region
+      // But be careful - only fall back if we're confident it's wrong
+      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) ancestry did not match hint "${countryHint}"`);
       
-      const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-      
-      const expandedHints = [...hintVariations];
-      for (const part of hintParts) {
-        if (!expandedHints.includes(part)) {
-          expandedHints.push(part);
-        }
-        const partVariations = getStateVariations(part);
-        for (const v of partVariations) {
-          if (!expandedHints.includes(v)) {
-            expandedHints.push(v);
-          }
-        }
-      }
-      
-      logger.info(`Searching for fallback with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
-      
-      // Check for known nearby destination fallbacks
+      // Check for known nearby destination fallbacks (for cities that don't exist in Viator)
       const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
       if (nearbyFallbacks) {
         for (const fallbackName of nearbyFallbacks) {
@@ -482,21 +515,64 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         }
       }
       
-      // Try to find the hinted region as a destination
-      for (const hintVar of expandedHints) {
-        if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
+      // CHANGED: Don't automatically fall back to region - return the city match
+      // The ancestry check may have failed due to data issues, but we found the city
+      // Only fall back to region if the city is clearly in the WRONG country/region
+      // (e.g., Paris, France vs Paris, Texas - different parent chains entirely)
+      
+      // Check if we should really reject this match
+      // If the match has NO parents or we couldn't traverse, trust the name match
+      const matchParentId = match.parentDestinationId ? String(match.parentDestinationId) : null;
+      const hasAncestry = matchParentId && destMap.has(matchParentId);
+      
+      if (!hasAncestry) {
+        logger.info(`Returning "${match.name}" - no ancestry data available to verify hint`);
+        return match;
+      }
+      
+      // For regions/countries in the hint, check if there's a DIFFERENT region with same name
+      // that we should fall back to (e.g., searching for city not in Viator)
+      for (const hint of hintArray) {
+        if (hint.length < 4 || hint === 'us' || hint === 'usa' || hint === 'italy') continue;
         
+        // Look for a region/state destination matching the hint
         const regionMatch = destinations.find(d => {
           const name = (d.destinationName || d.name || '').toLowerCase();
-          return name === hintVar || name.includes(hintVar);
+          const type = d.type || '';
+          // Only consider REGION or STATE type destinations as fallbacks
+          return (type === 'REGION' || type === 'STATE' || type === 'COUNTRY') && 
+                 (name === hint || name.includes(hint));
         });
-        if (regionMatch && regionMatch.destinationId !== match.destinationId) {
-          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
-          return regionMatch;
+        
+        if (regionMatch && String(regionMatch.destinationId) !== String(match.destinationId)) {
+          // Found a region - but only use it if the city truly isn't in it
+          // Check if city's parent chain includes this region
+          let cityIsInRegion = false;
+          let checkId = matchParentId;
+          let checkDepth = 0;
+          
+          while (checkId && checkDepth < 10) {
+            if (checkId === String(regionMatch.destinationId)) {
+              cityIsInRegion = true;
+              break;
+            }
+            const parent = destMap.get(checkId);
+            if (!parent) break;
+            checkId = parent.parentDestinationId ? String(parent.parentDestinationId) : null;
+            checkDepth++;
+          }
+          
+          if (cityIsInRegion) {
+            // City IS in this region - return the city, not the region
+            logger.info(`Verified "${match.name}" IS within region "${regionMatch.name}" - returning city`);
+            return match;
+          }
         }
       }
       
-      logger.warn(`Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`);
+      // Default: return the original match
+      // It's better to search a specific city than an entire region
+      logger.info(`Returning "${match.name}" - best available match for "${query}"`);
       return match;
     }
   }
