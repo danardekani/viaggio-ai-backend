@@ -391,6 +391,73 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
     return null;
   }
   
+  // If we have a hint, verify even single matches
+  if (matches.length === 1 && countryHint) {
+    const match = matches[0];
+    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    
+    // Get hint variations
+    const hintVariations = [countryHint];
+    if (COUNTRY_ALIASES[countryHint]) {
+      hintVariations.push(...COUNTRY_ALIASES[countryHint]);
+    }
+    const stateVariations = getStateVariations(countryHint);
+    hintVariations.push(...stateVariations);
+    
+    // Check if this single match actually matches the hint
+    let matchesHint = false;
+    
+    // Check destination name itself
+    const destName = (match.destinationName || match.name || '').toLowerCase();
+    if (hintVariations.some(hint => destName.includes(hint))) {
+      matchesHint = true;
+    }
+    
+    // Check ancestry
+    if (!matchesHint) {
+      let currentDest = match;
+      let depth = 0;
+      while (currentDest && depth < 5) {
+        const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
+        if (hintVariations.some(hint => parentName.includes(hint))) {
+          matchesHint = true;
+          break;
+        }
+        if (currentDest.parentDestinationId) {
+          currentDest = destMap.get(currentDest.parentDestinationId);
+        } else {
+          break;
+        }
+        depth++;
+      }
+    }
+    
+    if (matchesHint) {
+      logger.info(`Single match "${match.name}" verified against hint "${countryHint}"`);
+      return match;
+    } else {
+      // Single match doesn't match the hint - this is likely wrong!
+      // Try to find the state/region as a destination instead
+      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
+      
+      // Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
+      for (const hintVar of hintVariations) {
+        const regionMatch = destinations.find(d => {
+          const name = (d.destinationName || d.name || '').toLowerCase();
+          return name === hintVar || name.includes(hintVar);
+        });
+        if (regionMatch && regionMatch.destinationId !== match.destinationId) {
+          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
+          return regionMatch;
+        }
+      }
+      
+      // No better match found, return the original with a warning logged
+      logger.warn(`Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`);
+      return match;
+    }
+  }
+  
   if (matches.length === 1) {
     return matches[0];
   }
