@@ -739,21 +739,45 @@ function formatTourResult(product) {
   const productCode = product.productCode;
   const bookingLink = product.productUrl || buildAffiliateLink(productCode);
 
-  // Extract highlights/inclusions
-  const inclusions = product.inclusions?.map(i => i.otherDescription || i.typeDescription) || [];
-  const exclusions = product.exclusions?.map(e => e.otherDescription || e.typeDescription) || [];
+  // Helper to safely extract string from potentially nested objects
+  const extractString = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      // Handle {type, description} or {description} objects
+      return value.description || value.otherDescription || value.typeDescription || value.name || value.type || JSON.stringify(value);
+    }
+    return String(value);
+  };
+
+  // Extract highlights/inclusions - handle nested objects
+  const inclusions = product.inclusions?.map(i => {
+    const desc = i.otherDescription || i.typeDescription || i.description || i;
+    return extractString(desc);
+  }).filter(Boolean) || [];
+  
+  const exclusions = product.exclusions?.map(e => {
+    const desc = e.otherDescription || e.typeDescription || e.description || e;
+    return extractString(desc);
+  }).filter(Boolean) || [];
   
   // Extract itinerary/highlights
   const itinerary = product.itinerary?.itineraryItems?.map(item => ({
-    name: item.pointOfInterestLocation?.attractionId ? item.pointOfInterestLocation.location?.name : item.description,
-    description: item.description,
+    name: extractString(item.pointOfInterestLocation?.location?.name || item.description),
+    description: extractString(item.description),
     duration: item.duration?.fixedDurationInMinutes
   })) || [];
 
-  // Additional info
-  const additionalInfo = product.additionalInfo || [];
+  // Additional info - ensure all items are strings
+  const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
+  
   const cancellationPolicy = product.cancellationPolicy?.type || null;
-  const languages = product.languageGuides?.map(lg => lg.language) || [];
+  
+  // Languages - handle potential object format
+  const languages = product.languageGuides?.map(lg => {
+    if (typeof lg === 'string') return lg;
+    return lg.language || lg.name || extractString(lg);
+  }).filter(Boolean) || [];
 
   return {
     id: productCode,
