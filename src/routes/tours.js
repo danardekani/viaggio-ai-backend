@@ -44,7 +44,7 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  * {
  *   destination: "Boston",           // Required
  *   searchTerms: "food brewery",     // Optional - filter by keywords
- *   resultCount: 5,                  // Optional - number of results (default 10, max 20)
+ *   resultCount: 5,                  // Optional - number of results (default 10)
  *   sortBy: "reviews",               // Optional - 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'
  *   startDate: "2025-07-15",         // Optional - YYYY-MM-DD format
  *   endDate: "2025-07-22",           // Optional - YYYY-MM-DD format
@@ -55,11 +55,21 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  *   maxDuration: 240,                // Optional - maximum duration in minutes
  *   minRating: 4                     // Optional - minimum rating (1-5)
  * }
+ * 
+ * Response:
+ * {
+ *   tours: [...],                    // Array of tour objects
+ *   totalCount: 3038,                // Total available from Viator API
+ *   hasMore: true,                   // Whether more results exist beyond fetched
+ *   count: 500,                      // Number of tours returned
+ *   searchParams: {...}              // Echo of search parameters
+ * }
  */
 router.post('/search', async (req, res, next) => {
   try {
     const { 
       destination, 
+      destinationId,
       searchTerms = '', 
       resultCount = 10,
       sortBy = 'popular',
@@ -87,10 +97,11 @@ router.post('/search', async (req, res, next) => {
 
     logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}`);
 
-    const tours = await searchTours({
+    const result = await searchTours({
       destination,
+      destinationId,
       searchTerms,
-      resultCount: Math.min(parseInt(resultCount) || 10, 20),
+      resultCount: Math.min(parseInt(resultCount) || 10, 500), // Allow up to 500
       sortBy,
       startDate,
       endDate,
@@ -102,12 +113,31 @@ router.post('/search', async (req, res, next) => {
       minRating: minRating !== undefined ? parseFloat(minRating) : undefined
     });
 
-    logger.info(`Returning ${tours.length} tours`);
+    // Handle both old format (array) and new format (object with metadata)
+    let tours, totalCount, hasMore;
+    
+    if (Array.isArray(result)) {
+      // Old format - backward compatibility
+      tours = result;
+      totalCount = result.length;
+      hasMore = false;
+    } else {
+      // New format with metadata
+      tours = result.tours || [];
+      totalCount = result.totalCount || tours.length;
+      hasMore = result.hasMore || false;
+    }
+
+    logger.info(`Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`);
 
     res.json({ 
       tours,
+      totalCount,        // Total available from Viator
+      hasMore,           // Are there more results beyond what we fetched?
+      count: tours.length,
       searchParams: { 
         destination, 
+        destinationId,
         searchTerms, 
         resultCount, 
         sortBy,
@@ -119,8 +149,7 @@ router.post('/search', async (req, res, next) => {
         minDuration,
         maxDuration,
         minRating
-      },
-      count: tours.length
+      }
     });
 
   } catch (error) {
