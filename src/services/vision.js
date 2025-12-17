@@ -8,8 +8,19 @@
 
 import { logger } from '../utils/logger.js';
 
+// ==========================================================================
+// AI PROVIDER TOGGLE - Uncomment ONE of the following sections
+// ==========================================================================
+
 // --------------------------------------------------------------------------
-// CLAUDE Sonnet - 4.5
+// OPTION A: GEMINI (commented out)
+// --------------------------------------------------------------------------
+// import { GoogleGenerativeAI } from '@google/generative-ai';
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// const AI_PROVIDER = 'gemini';
+
+// --------------------------------------------------------------------------
+// OPTION B: CLAUDE (currently active)
 // --------------------------------------------------------------------------
 import Anthropic from '@anthropic-ai/sdk';
 const anthropic = new Anthropic({
@@ -230,37 +241,49 @@ TASK: Identify the specific travel destination shown in this image.
 ${contextHints ? `CLUES FROM IMAGE ANALYSIS:${contextHints}` : ''}
 
 ANALYSIS APPROACH:
-1. First, examine the image carefully for distinctive features:
+1. **LOOK FOR BUSINESS NAMES AND SIGNAGE FIRST** - This is often the most reliable identifier:
+   - Store names, restaurant names, attraction names (e.g., "Gillian's" = Ocean City NJ, "Steel Pier" = Atlantic City)
+   - Hotel names visible in the image
+   - Amusement park or pier names
+   - Street signs or city markers
+   - These business names are often UNIQUE to specific locations
+
+2. Examine distinctive visual features:
    - Architecture style (Gothic, Baroque, Modern, Islamic, Asian, etc.)
    - Landscape features (mountains, coastline, desert, tropical, etc.)
+   - Specific ride types or attractions at amusement parks
    - Vegetation and climate indicators
-   - Signs, text, or language visible
-   - People's clothing and cultural indicators
    - Vehicles, infrastructure, street patterns
-   - Famous landmarks or monuments
-   - Store and street signs 
-   
-2. Cross-reference with the clues provided above (if any)
 
-3. Consider multiple possibilities and choose the most likely match
+3. **BE CAREFUL WITH SIMILAR-LOOKING DESTINATIONS:**
+   - Beach boardwalks (e.g., Ocean City NJ vs Seaside Heights vs Wildwood vs Atlantic City - all look similar but have different business names)
+   - Ski resorts
+   - European old towns
+   - Asian temples
+   - When destinations look similar, RELY ON SIGNAGE AND BUSINESS NAMES to distinguish them
 
-4. If this appears to be a FAMOUS LANDMARK, identify both:
-   - The specific landmark name (e.g., "Eiffel Tower", "Colosseum")
-   - The city/destination where it's located (e.g., "Paris", "Rome")
+4. Cross-reference with the clues provided above (if any)
+   - The WEB IMAGE SEARCH and WEB PAGES hints are particularly valuable
+   - If web search suggests a specific location, verify it matches the signage you see
+
+5. If this appears to be a FAMOUS LANDMARK, identify both:
+   - The specific landmark name (e.g., "Eiffel Tower", "Colosseum", "Gillian's Wonderland Pier")
+   - The city/destination where it's located (e.g., "Paris", "Rome", "Ocean City")
 
 CRITICAL RULES:
 - The "destination" field must be a CITY or REGION name (where a tourist would search for tours)
 - NOT the landmark name itself
 - Example: If you see the Colosseum, destination.name = "Rome", landmark = "Colosseum"
-- Example: If you see Machu Picchu, destination.name = "Cusco" or "Machu Picchu" (since it's a destination itself)
-- Example: If you see a beach in Thailand, destination.name = "Phuket" or "Krabi" (be specific if possible)
+- Example: If you see "Gillian's" pier, destination.name = "Ocean City", region = "New Jersey", landmark = "Gillian's Wonderland Pier"
+- Example: If you see "Steel Pier", destination.name = "Atlantic City", region = "New Jersey"
 - Example: If you see Big Ben, destination.name = "London", landmark = "Big Ben"
-- IMPORTANT: For UK locations, always use "United Kingdom" as the country, or be specific like "London, England, United Kingdom"
+- For US locations, ALWAYS include the state in the "region" field
+- For UK locations, use "United Kingdom" as the country
 
 CONFIDENCE LEVELS:
-- "high": You are very confident (famous landmark, clear signs, distinctive architecture)
-- "medium": Reasonably confident but some uncertainty (generic cityscape with some clues)
-- "low": Best guess based on limited information
+- "high": You can read specific business names/signs that identify the exact location
+- "medium": Visual features strongly suggest a location but no confirming signage
+- "low": Best guess based on general appearance
 
 RESPOND WITH ONLY THIS JSON (no markdown, no explanation, no code blocks):
 {
@@ -270,10 +293,10 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation, no code blocks):
     "name": "City Name",
     "region": "State/Province if applicable",
     "country": "Country Name",
-    "fullName": "City Name, Country Name"
+    "fullName": "City Name, State/Region, Country Name"
   },
-  "landmark": "Specific landmark name if visible, otherwise null",
-  "reasoning": "2-3 sentences explaining what features led to this identification"
+  "landmark": "Specific landmark, pier, or attraction name if visible, otherwise null",
+  "reasoning": "2-3 sentences explaining what features led to this identification, specifically mentioning any signage or business names you used"
 }
 
 If you truly cannot identify the location (generic indoor shot, too blurry, no distinguishing features):
@@ -353,6 +376,61 @@ If you truly cannot identify the location (generic indoor shot, too blurry, no d
     };
   }
 }
+
+// ============================================================================
+// GEMINI - AI IMAGE ANALYSIS (commented out - uncomment to use)
+// ============================================================================
+
+// async function analyzeImageWithGemini(imageBase64, mediaType = 'image/jpeg', visionContext = {}) {
+//   try {
+//     logger.info('Analyzing image with Gemini for location identification...');
+//
+//     const model = genAI.getGenerativeModel({
+//       model: 'gemini-2.0-flash-exp',
+//       generationConfig: {
+//         temperature: 0.2,
+//         maxOutputTokens: 1000,
+//       }
+//     });
+//
+//     // Build context hints (same structure as Claude)
+//     let contextHints = '';
+//     if (visionContext.landmarks?.length > 0) {
+//       const landmarkNames = visionContext.landmarks.map(l => `${l.name} (${Math.round(l.score * 100)}%)`).join(', ');
+//       contextHints += `\n- LANDMARK DETECTION: ${landmarkNames}`;
+//     }
+//     if (visionContext.bestGuessLabels?.length > 0) {
+//       contextHints += `\n- WEB IMAGE SEARCH suggests: ${visionContext.bestGuessLabels.join(', ')}`;
+//     }
+//     if (visionContext.webEntities?.length > 0) {
+//       const topEntities = visionContext.webEntities.slice(0, 8).map(e => e.name).join(', ');
+//       contextHints += `\n- RELATED ENTITIES: ${topEntities}`;
+//     }
+//     if (visionContext.detectedText) {
+//       contextHints += `\n- TEXT VISIBLE: "${visionContext.detectedText.substring(0, 300)}"`;
+//     }
+//
+//     const prompt = `You are an expert travel destination identifier...`; // Same prompt as Claude
+//
+//     const imagePart = {
+//       inlineData: {
+//         data: imageBase64,
+//         mimeType: mediaType
+//       }
+//     };
+//
+//     const result = await model.generateContent([prompt, imagePart]);
+//     const responseText = result.response.text().trim();
+//
+//     let jsonText = responseText.replace(/```json?\n?/g, '').replace(/```\n?$/g, '').trim();
+//     const analysis = JSON.parse(jsonText);
+//
+//     return { success: analysis.identified, ...analysis };
+//   } catch (error) {
+//     logger.error('Gemini image analysis error:', error);
+//     return { success: false, identified: false, error: error.message };
+//   }
+// }
 
 // ============================================================================
 // AI ANALYSIS ROUTER - Routes to active provider
