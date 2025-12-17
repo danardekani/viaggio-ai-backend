@@ -117,6 +117,7 @@ router.post('/chat', async (req, res) => {
     // Track tool usage for this request
     const toolsUsed = [];
     const toursFound = [];
+    let searchDestination = null;  // Track the destination from tour searches
     let iterations = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -136,6 +137,8 @@ router.post('/chat', async (req, res) => {
         
         return res.json({
           message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
+          tours: toursFound,
+          searchDestination: searchDestination,
           toolsUsed,
           iterations,
           warning: 'Request timeout - partial response',
@@ -192,6 +195,7 @@ router.post('/chat', async (req, res) => {
         return res.json({
           message: finalText,
           tours: toursFound,
+          searchDestination: searchDestination,  // For "View more" navigation
           toolsUsed,
           iterations,
           usage: {
@@ -215,6 +219,10 @@ router.post('/chat', async (req, res) => {
           // Collect tours for card display
           if (result.tours && Array.isArray(result.tours)) {
             toursFound.push(...result.tours);
+            // Capture the destination for "View more" navigation
+            if (result.destination) {
+              searchDestination = result.destination;
+            }
           }
           
           toolResults.push({
@@ -251,6 +259,7 @@ router.post('/chat', async (req, res) => {
     return res.json({
       message: "Let me summarize what I found so far. Could you try a more specific question?",
       tours: toursFound,
+      searchDestination: searchDestination,
       toolsUsed,
       iterations,
       warning: 'Maximum iterations reached',
