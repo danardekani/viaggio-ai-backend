@@ -240,16 +240,33 @@ export async function findDestination(query, stateContext = null) {
     const destinations = await fetchDestinations();
     const normalizedQuery = query.toLowerCase().trim();
     
-    logger.info(`Looking up destination: "${query}" -> cleaned: "${query}" -> normalized: "${normalizedQuery}"${stateContext ? ` (state context: parentId=${stateContext.parentId})` : ''}`);
+    // Parse query for city, country pattern (e.g., "London, England" or "Paris, France")
+    let cityName = normalizedQuery;
+    let countryHint = null;
+    
+    // Check for comma-separated format: "City, Country" or "City, State"
+    const commaMatch = normalizedQuery.match(/^([^,]+),\s*(.+)$/);
+    if (commaMatch) {
+      cityName = commaMatch[1].trim();
+      countryHint = commaMatch[2].trim();
+      logger.info(`Parsed query: city="${cityName}", country/region hint="${countryHint}"`);
+    }
+    
+    logger.info(`Looking up destination: "${query}" -> city: "${cityName}"${countryHint ? `, hint: "${countryHint}"` : ''}${stateContext ? ` (state context: parentId=${stateContext.parentId})` : ''}`);
 
-    // Try to find the destination with state context if available
-    let match = findDestinationMatch(destinations, normalizedQuery, stateContext);
+    // Try to find the destination with country hint if available
+    let match = findDestinationMatch(destinations, cityName, stateContext, countryHint);
+    
+    // If no match with city name alone, try full query
+    if (!match && cityName !== normalizedQuery) {
+      match = findDestinationMatch(destinations, normalizedQuery, stateContext, null);
+    }
     
     // If no match, try regional fallback
     if (!match && REGIONAL_FALLBACKS[normalizedQuery]) {
       const fallbackName = REGIONAL_FALLBACKS[normalizedQuery];
       logger.info(`No match for "${normalizedQuery}", trying regional fallback: "${fallbackName}"`);
-      match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null);
+      match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null, null);
     }
     
     // Also try the original query with state in the fallbacks
@@ -258,7 +275,7 @@ export async function findDestination(query, stateContext = null) {
       if (REGIONAL_FALLBACKS[originalNormalized]) {
         const fallbackName = REGIONAL_FALLBACKS[originalNormalized];
         logger.info(`Trying original query fallback: "${originalNormalized}" -> "${fallbackName}"`);
-        match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null);
+        match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null, null);
       }
     }
     
@@ -267,7 +284,7 @@ export async function findDestination(query, stateContext = null) {
       const stateName = stateContext.stateName || STATE_ABBREVS[stateContext.stateAbbrev];
       if (stateName) {
         logger.info(`Trying state fallback: "${stateName}"`);
-        match = findDestinationMatch(destinations, stateName.toLowerCase(), null);
+        match = findDestinationMatch(destinations, stateName.toLowerCase(), null, null);
       }
     }
 
@@ -289,8 +306,23 @@ export async function findDestination(query, stateContext = null) {
   }
 }
 
+// Country/region name mappings for disambiguation
+const COUNTRY_ALIASES = {
+  'england': ['united kingdom', 'uk', 'great britain', 'britain'],
+  'uk': ['united kingdom', 'england', 'great britain', 'britain'],
+  'united kingdom': ['uk', 'england', 'great britain', 'britain'],
+  'great britain': ['united kingdom', 'uk', 'england', 'britain'],
+  'britain': ['united kingdom', 'uk', 'england', 'great britain'],
+  'usa': ['united states', 'us', 'america'],
+  'us': ['united states', 'usa', 'america'],
+  'united states': ['usa', 'us', 'america'],
+  'america': ['united states', 'usa', 'us'],
+  'uae': ['united arab emirates'],
+  'united arab emirates': ['uae']
+};
+
 // Helper function to find destination match
-function findDestinationMatch(destinations, query, stateContext = null) {
+function findDestinationMatch(destinations, query, stateContext = null, countryHint = null) {
   // Try exact match first
   let matches = destinations.filter(dest => {
     const name = (dest.destinationName || dest.name || '').toLowerCase();
@@ -324,6 +356,60 @@ function findDestinationMatch(destinations, query, stateContext = null) {
   // Multiple matches - try to disambiguate
   logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
   
+  // If we have a country hint, try to find a match whose ancestry includes that country
+  if (countryHint) {
+    // Get all possible country names to match against
+    const countryNames = [countryHint];
+    if (COUNTRY_ALIASES[countryHint]) {
+      countryNames.push(...COUNTRY_ALIASES[countryHint]);
+    }
+    
+    // Build destination map for ancestry lookup
+    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    
+    for (const match of matches) {
+      // Check the ancestry of this destination for the country hint
+      let currentDest = match;
+      let depth = 0;
+      const maxDepth = 5; // Prevent infinite loops
+      
+      while (currentDest && depth < maxDepth) {
+        const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
+        
+        // Check if any parent matches the country hint
+        if (countryNames.some(cn => parentName.includes(cn))) {
+          logger.info(`Disambiguated to "${match.name}" based on country hint "${countryHint}" (matched parent: ${parentName})`);
+          return match;
+        }
+        
+        // Move up the ancestry chain
+        if (currentDest.parentDestinationId) {
+          currentDest = destMap.get(currentDest.parentDestinationId);
+        } else {
+          break;
+        }
+        depth++;
+      }
+    }
+    
+    // Also check if any match has the country in its parent name directly
+    for (const match of matches) {
+      const parentId = match.parentDestinationId;
+      if (parentId) {
+        const parent = destMap.get(parentId);
+        if (parent) {
+          const parentName = (parent.destinationName || parent.name || '').toLowerCase();
+          if (countryNames.some(cn => parentName.includes(cn))) {
+            logger.info(`Disambiguated to "${match.name}" based on direct parent match "${parentName}"`);
+            return match;
+          }
+        }
+      }
+    }
+    
+    logger.info(`Country hint "${countryHint}" did not help disambiguate`);
+  }
+  
   // If we have state context, prefer match with correct parent
   if (stateContext && stateContext.parentId) {
     const stateMatch = matches.find(m => m.parentDestinationId === stateContext.parentId);
@@ -333,7 +419,19 @@ function findDestinationMatch(destinations, query, stateContext = null) {
     }
   }
   
-  // Default to first match
+  // Prefer destinations with higher lookup frequency (major cities tend to have lower IDs in Viator)
+  // Also prefer CITY type over REGION or other types
+  matches.sort((a, b) => {
+    // Prefer CITY type
+    const aIsCity = a.type === 'CITY' ? 1 : 0;
+    const bIsCity = b.type === 'CITY' ? 1 : 0;
+    if (aIsCity !== bIsCity) return bIsCity - aIsCity;
+    
+    // Prefer lower IDs (generally more popular destinations)
+    return (a.destinationId || 999999) - (b.destinationId || 999999);
+  });
+  
+  logger.info(`Returning first match after sorting: "${matches[0].name}" (ID: ${matches[0].destinationId})`);
   return matches[0];
 }
 
