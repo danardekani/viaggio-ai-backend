@@ -238,7 +238,8 @@ ANALYSIS APPROACH:
    - People's clothing and cultural indicators
    - Vehicles, infrastructure, street patterns
    - Famous landmarks or monuments
-
+   - Store and street signs 
+   
 2. Cross-reference with the clues provided above (if any)
 
 3. Consider multiple possibilities and choose the most likely match
