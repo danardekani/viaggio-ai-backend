@@ -129,11 +129,14 @@ async function analyzeImageWithGemini(imageBase64, mediaType, visionContext) {
       contextHints += `Text: "${visionContext.detectedText.substring(0, 100)}". `;
     }
 
-    const prompt = `Identify the travel destination in this image.
-${contextHints ? `Hints: ${contextHints}` : ''}
+    const prompt = `You are a travel expert. Identify the SPECIFIC location in this image.
 
-Return ONLY valid JSON (no markdown):
-{"identified":true,"confidence":"high","destination":{"name":"City","region":"Region","country":"Country","fullName":"City, Country"},"landmark":"Landmark or null","reasoning":"Brief explanation"}`;
+${contextHints ? `Detection hints: ${contextHints}` : ''}
+
+IMPORTANT: For landmarks, provide the OFFICIAL/FULL NAME (e.g., "Cathedral of Sant'Agata" not just "Catania Cathedral", "Basilica di San Marco" not just "Venice Cathedral").
+
+Return ONLY valid JSON (no markdown, no explanation):
+{"identified":true,"confidence":"high","destination":{"name":"City","region":"Region","country":"Country","fullName":"City, Country"},"landmark":"FULL official name of landmark or null","reasoning":"One sentence"}`;
 
     const imagePart = {
       inlineData: { data: imageBase64, mimeType: mediaType }
@@ -229,9 +232,9 @@ async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
   const visionResult = await detectLandmarks(imageBase64);
 
   // Step 2: High-confidence landmark path
-  if (visionResult.landmarks?.length > 0 && visionResult.landmarks[0].score > 0.8) {
+  if (visionResult.landmarks?.length > 0 && visionResult.landmarks[0].score > 0.7) {
     const topLandmark = visionResult.landmarks[0];
-    logger.info(`High-confidence landmark: ${topLandmark.name}`);
+    logger.info(`High-confidence landmark: ${topLandmark.name} (${Math.round(topLandmark.score * 100)}%)`);
     
     const aiResult = await analyzeImageWithGemini(imageBase64, mediaType, visionResult);
     
@@ -239,9 +242,14 @@ async function identifyLocation(imageBase64, mediaType = 'image/jpeg') {
       result.success = true;
       result.source = 'vision_enhanced';
       result.destination = aiResult.destination;
-      result.landmark = topLandmark.name;
+      // Use Google Vision's landmark name if it's more specific (longer/detailed)
+      const visionLandmark = topLandmark.name;
+      const aiLandmark = aiResult.landmark;
+      result.landmark = (visionLandmark && visionLandmark.length > (aiLandmark?.length || 0)) 
+        ? visionLandmark 
+        : (aiLandmark || visionLandmark);
       result.confidence = 'high';
-      result.reasoning = `Identified landmark: ${topLandmark.name}`;
+      result.reasoning = `Identified landmark: ${result.landmark}`;
       result.viatorDestinationId = aiResult.destination.viatorId || getDestinationId(aiResult.destination.name);
       
       if (topLandmark.locations?.[0]) {
