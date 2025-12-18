@@ -1140,7 +1140,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
           const cachedDest = destMap.get(destId);
           const destType = cachedDest?.type || 'DESTINATION';
           const name = d.name || d.destinationName;
-          const displayName = (name, destId, destType, destMap);
+          const displayName = buildDisplayName(name, destId, destType, destMap);
           
           return {
             destinationId: destId?.toString(),
@@ -1180,7 +1180,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       .sort((a, b) => b.score - a.score)
       .slice(0, limit * 2)
       .map(d => {
-        const displayName = (d.name, d.destinationId, d.type || 'CITY', destMap);
+        const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
         
         return {
           destinationId: d.destinationId?.toString(),
@@ -1232,105 +1232,140 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
  * - Countries: Just the name (e.g., "France")
  */
 function buildDisplayName(name, destId, destType, destMap) {
-  // Get the full ancestry chain for this destination
-  const ancestry = getDestinationAncestry(destId, destMap);
+  // CRITICAL: Always return a string
+  if (!name || typeof name !== 'string') {
+    return String(name || 'Unknown');
+  }
   
-  // Find key ancestors
-  const country = ancestry.find(d => d.type === 'COUNTRY');
-  const countryName = country?.name || null;
-  const state = ancestry.find(d => d.type === 'STATE');
-  const region = ancestry.find(d => d.type === 'REGION');
-  const parentCity = ancestry.find(d => d.type === 'CITY');
-  
-  // Check if this is a US destination
-  const isUSA = countryName && (
-    countryName.toLowerCase() === 'united states' ||
-    countryName.toLowerCase() === 'usa' ||
-    countryName.toLowerCase() === 'united states of america'
-  );
-  
-  // Handle COUNTRY type
-  if (destType === 'COUNTRY') {
+  // If we don't have the tools to look up ancestry, just return the name
+  if (!destId || !destMap || typeof destMap.get !== 'function') {
     return name;
   }
   
-  // Handle REGION or STATE type
-  if (destType === 'REGION' || destType === 'STATE') {
-    if (isUSA) {
-      return `${name}, USA`;
+  try {
+    // Get the full ancestry chain for this destination
+    const ancestry = getDestinationAncestry(destId, destMap);
+    
+    // Safety check
+    if (!Array.isArray(ancestry)) {
+      return name;
     }
-    return countryName ? `${name}, ${countryName}` : name;
-  }
-  
-  // Handle CITY type
-  if (destType === 'CITY') {
-    if (isUSA && state) {
-      // US format: "Philadelphia, Pennsylvania, USA"
+    
+    // Find key ancestors
+    const country = ancestry.find(d => d && d.type === 'COUNTRY');
+    const countryName = country?.name || null;
+    const state = ancestry.find(d => d && d.type === 'STATE');
+    const region = ancestry.find(d => d && d.type === 'REGION');
+    const parentCity = ancestry.find(d => d && d.type === 'CITY');
+    
+    // Check if this is a US destination
+    const isUSA = countryName && (
+      countryName.toLowerCase() === 'united states' ||
+      countryName.toLowerCase() === 'usa' ||
+      countryName.toLowerCase() === 'united states of america'
+    );
+    
+    // Handle COUNTRY type
+    if (destType === 'COUNTRY') {
+      return name;
+    }
+    
+    // Handle REGION or STATE type
+    if (destType === 'REGION' || destType === 'STATE') {
+      if (isUSA) {
+        return `${name}, USA`;
+      }
+      return countryName ? `${name}, ${countryName}` : name;
+    }
+    
+    // Handle CITY type
+    if (destType === 'CITY') {
+      if (isUSA && state?.name) {
+        // US format: "Philadelphia, Pennsylvania, USA"
+        return `${name}, ${state.name}, USA`;
+      } else if (region?.name && countryName) {
+        // European/other format with region: "Catania, Sicily, Italy"
+        return `${name}, ${region.name}, ${countryName}`;
+      } else if (countryName) {
+        // Simple format: "Paris, France"
+        return `${name}, ${countryName}`;
+      }
+      return name;
+    }
+    
+    // Handle sub-city types (TOWN, DISTRICT, NEIGHBORHOOD, etc.)
+    if (parentCity?.name) {
+      if (isUSA && state?.name) {
+        return `${name}, ${parentCity.name}, USA`;
+      } else if (countryName) {
+        return `${name}, ${parentCity.name}, ${countryName}`;
+      }
+      return `${name}, ${parentCity.name}`;
+    }
+    
+    // Fallback for other types
+    if (isUSA && state?.name) {
       return `${name}, ${state.name}, USA`;
-    } else if (region && countryName) {
-      // European/other format with region: "Catania, Sicily, Italy"
+    } else if (region?.name && countryName) {
       return `${name}, ${region.name}, ${countryName}`;
     } else if (countryName) {
-      // Simple format: "Paris, France"
       return `${name}, ${countryName}`;
     }
+    
+    // Last resort: check cached destination for parent name
+    const normalizedId = destId?.toString();
+    const cachedDest = destMap.get(normalizedId) || destMap.get(Number(normalizedId));
+    
+    if (cachedDest?.parentDestinationId) {
+      const parentId = cachedDest.parentDestinationId?.toString();
+      const parent = destMap.get(parentId) || destMap.get(Number(parentId));
+      if (parent?.name) {
+        return `${name}, ${parent.name}`;
+      }
+    }
+    
+    // CRITICAL: Always return the name string as final fallback
     return name;
+    
+  } catch (error) {
+    // Log error but ALWAYS return a string
+    console.error('Error in buildDisplayName:', error.message);
+    return name || 'Unknown';
   }
-  
-  // Handle sub-city types (TOWN, DISTRICT, NEIGHBORHOOD, etc.)
-  if (parentCity) {
-    if (isUSA && state) {
-      // US format: "Brooklyn, New York, USA"
-      return `${name}, ${parentCity.name}, USA`;
-    } else if (countryName) {
-      // "Oia, Santorini, Greece"
-      return `${name}, ${parentCity.name}, ${countryName}`;
-    }
-    return `${name}, ${parentCity.name}`;
-  }
-  
-  // Fallback for other types
-  if (isUSA && state) {
-    return `${name}, ${state.name}, USA`;
-  } else if (region && countryName) {
-    return `${name}, ${region.name}, ${countryName}`;
-  } else if (countryName) {
-    return `${name}, ${countryName}`;
-  }
-  
-  // Last resort: check cached destination for parent
-  const cachedDest = destMap.get(destId);
-  if (cachedDest?.parentDestinationId) {
-    const parent = destMap.get(cachedDest.parentDestinationId);
-    if (parent) {
-      return `${name}, ${parent.name}`;
-    }
-  }
-  
-  return name;
 }
-
 /**
- * Get the ancestry chain for a destination
+ * Get the ancestry chain for a destination (parent, grandparent, etc.)
+ * Returns array of ancestors with their type and name
  */
 function getDestinationAncestry(destId, destMap, maxDepth = 5) {
   const ancestry = [];
-  let currentId = destId;
+  
+  if (!destId || !destMap) {
+    return ancestry;
+  }
+  
+  // Normalize ID to handle both string and number types
+  let currentId = destId?.toString();
   let depth = 0;
   
   while (currentId && depth < maxDepth) {
-    const dest = destMap.get(currentId);
+    // Try both string and number versions of the ID
+    let dest = destMap.get(currentId) || destMap.get(Number(currentId));
+    
     if (!dest) break;
     
+    // Move to parent
     if (dest.parentDestinationId) {
-      const parent = destMap.get(dest.parentDestinationId);
+      const parentId = dest.parentDestinationId?.toString();
+      const parent = destMap.get(parentId) || destMap.get(Number(parentId));
+      
       if (parent) {
         ancestry.push({
           id: parent.destinationId,
-          name: parent.name,
+          name: parent.name || parent.destinationName,
           type: parent.type
         });
-        currentId = parent.destinationId;
+        currentId = parentId;
       } else {
         break;
       }
