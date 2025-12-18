@@ -1140,7 +1140,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
           const cachedDest = destMap.get(destId);
           const destType = cachedDest?.type || 'DESTINATION';
           const name = d.name || d.destinationName;
-          const displayName = buildDisplayName(name, destId, destType, destMap);
+          const displayName = (name, destId, destType, destMap);
           
           return {
             destinationId: destId?.toString(),
@@ -1180,7 +1180,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       .sort((a, b) => b.score - a.score)
       .slice(0, limit * 2)
       .map(d => {
-        const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
+        const displayName = (d.name, d.destinationId, d.type || 'CITY', destMap);
         
         return {
           destinationId: d.destinationId?.toString(),
@@ -1223,33 +1223,82 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 
 /**
  * Build a user-friendly display name for a destination
+ * 
+ * Format rules:
+ * - US Cities: "City, State, USA" (e.g., "Philadelphia, Pennsylvania, USA")
+ * - Cities with regions: "City, Region, Country" (e.g., "Catania, Sicily, Italy")
+ * - Cities without regions: "City, Country" (e.g., "Paris, France")
+ * - Regions/States: "Region, Country" (e.g., "Tuscany, Italy")
+ * - Countries: Just the name (e.g., "France")
  */
 function buildDisplayName(name, destId, destType, destMap) {
+  // Get the full ancestry chain for this destination
   const ancestry = getDestinationAncestry(destId, destMap);
   
+  // Find key ancestors
   const country = ancestry.find(d => d.type === 'COUNTRY');
   const countryName = country?.name || null;
+  const state = ancestry.find(d => d.type === 'STATE');
+  const region = ancestry.find(d => d.type === 'REGION');
+  const parentCity = ancestry.find(d => d.type === 'CITY');
   
+  // Check if this is a US destination
+  const isUSA = countryName && (
+    countryName.toLowerCase() === 'united states' ||
+    countryName.toLowerCase() === 'usa' ||
+    countryName.toLowerCase() === 'united states of america'
+  );
+  
+  // Handle COUNTRY type
   if (destType === 'COUNTRY') {
     return name;
   }
   
+  // Handle REGION or STATE type
   if (destType === 'REGION' || destType === 'STATE') {
+    if (isUSA) {
+      return `${name}, USA`;
+    }
     return countryName ? `${name}, ${countryName}` : name;
   }
   
+  // Handle CITY type
   if (destType === 'CITY') {
-    return countryName ? `${name}, ${countryName}` : name;
+    if (isUSA && state) {
+      // US format: "Philadelphia, Pennsylvania, USA"
+      return `${name}, ${state.name}, USA`;
+    } else if (region && countryName) {
+      // European/other format with region: "Catania, Sicily, Italy"
+      return `${name}, ${region.name}, ${countryName}`;
+    } else if (countryName) {
+      // Simple format: "Paris, France"
+      return `${name}, ${countryName}`;
+    }
+    return name;
   }
   
-  const parentCity = ancestry.find(d => d.type === 'CITY');
+  // Handle sub-city types (TOWN, DISTRICT, NEIGHBORHOOD, etc.)
+  if (parentCity) {
+    if (isUSA && state) {
+      // US format: "Brooklyn, New York, USA"
+      return `${name}, ${parentCity.name}, USA`;
+    } else if (countryName) {
+      // "Oia, Santorini, Greece"
+      return `${name}, ${parentCity.name}, ${countryName}`;
+    }
+    return `${name}, ${parentCity.name}`;
+  }
   
-  if (parentCity && countryName) {
-    return `${name}, ${parentCity.name}, ${countryName}`;
+  // Fallback for other types
+  if (isUSA && state) {
+    return `${name}, ${state.name}, USA`;
+  } else if (region && countryName) {
+    return `${name}, ${region.name}, ${countryName}`;
   } else if (countryName) {
     return `${name}, ${countryName}`;
   }
   
+  // Last resort: check cached destination for parent
   const cachedDest = destMap.get(destId);
   if (cachedDest?.parentDestinationId) {
     const parent = destMap.get(cachedDest.parentDestinationId);
