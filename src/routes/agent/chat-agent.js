@@ -121,6 +121,9 @@ router.post('/chat', async (req, res) => {
     const toolsUsed = [];
     const toursFound = [];
     let searchDestination = null;  // Track the destination from tour searches
+    let searchDestinationId = null;  // For "See more" navigation
+    let searchTerms = null;  // For "See more" navigation
+    let hasMoreTours = false;  // For "See more" button
     let iterations = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -142,6 +145,9 @@ router.post('/chat', async (req, res) => {
           message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
           tours: toursFound,
           searchDestination: searchDestination,
+          searchDestinationId: searchDestinationId,
+          searchTerms: searchTerms,
+          hasMore: hasMoreTours,
           toolsUsed,
           iterations,
           warning: 'Request timeout - partial response',
@@ -211,7 +217,10 @@ router.post('/chat', async (req, res) => {
         return res.json({
           message: finalText,
           tours: toursFound,
-          searchDestination: searchDestination,  // For "View more" navigation
+          searchDestination: searchDestination,
+          searchDestinationId: searchDestinationId,
+          searchTerms: searchTerms,
+          hasMore: hasMoreTours,  // Frontend uses this for "See more" button
           toolsUsed,
           iterations,
           usage: {
@@ -235,9 +244,18 @@ router.post('/chat', async (req, res) => {
           // Collect tours for card display
           if (result.tours && Array.isArray(result.tours)) {
             toursFound.push(...result.tours);
-            // Capture the destination for "View more" navigation
+            // Capture navigation info for "See more" button
             if (result.destination) {
               searchDestination = result.destination;
+            }
+            if (result.destinationId) {
+              searchDestinationId = result.destinationId;
+            }
+            if (result.searchTerms) {
+              searchTerms = result.searchTerms;
+            }
+            if (result.hasMore) {
+              hasMoreTours = true;
             }
           }
           
@@ -271,11 +289,14 @@ router.post('/chat', async (req, res) => {
 
     // Max iterations reached
     logger.warn(`Max iterations (${MAX_TOOL_ITERATIONS}) reached`);
-    
+
     return res.json({
       message: "Let me summarize what I found so far. Could you try a more specific question?",
       tours: toursFound,
       searchDestination: searchDestination,
+      searchDestinationId: searchDestinationId,
+      searchTerms: searchTerms,
+      hasMore: hasMoreTours,
       toolsUsed,
       iterations,
       warning: 'Maximum iterations reached',

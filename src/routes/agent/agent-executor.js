@@ -71,21 +71,23 @@ async function executeSearchTours(input) {
     max_price,
     min_rating,
     special_offer = false,
-    result_count = 5
+    result_count = 5  // Default to 5 for chat bot
   } = input;
 
-  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date, special_offer });
+  // PERFORMANCE: Enforce 5 tour limit for chat bot responses
+  const CHAT_TOUR_LIMIT = 5;
+  const effectiveResultCount = Math.min(result_count || CHAT_TOUR_LIMIT, CHAT_TOUR_LIMIT);
+
+  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date, special_offer, effectiveResultCount });
 
   try {
     // Step 1: Use Viator's autocomplete to find the best matching destination
-    // Get multiple results so we can pick the most specific match
     let searchDestination = destination;
     let destinationId = null;
-    
+
     try {
       const autocompleteResults = await searchDestinationsAutocomplete(destination, 5);
       if (autocompleteResults && autocompleteResults.length > 0) {
-        // Find the best match - prefer exact/closest matches and cities over countries
         const bestMatch = findBestDestinationMatch(destination, autocompleteResults);
         searchDestination = bestMatch.name || bestMatch.destinationName || destination;
         destinationId = bestMatch.destinationId;
@@ -102,10 +104,10 @@ async function executeSearchTours(input) {
       logger.info(`Including SPECIAL_OFFER flag for deals search`);
     }
 
-    // Step 2: Search for tours using the matched destination
+    // Step 2: Search for tours - request a few extra to check if there are more
     const tours = await searchTours({
       destination: searchDestination,
-      destinationId: destinationId,  // Pass the ID if we have it
+      destinationId: destinationId,
       searchTerms: interests.join(' '),
       sortBy: sort_by,
       startDate: start_date,
@@ -113,40 +115,48 @@ async function executeSearchTours(input) {
       maxPrice: max_price,
       minRating: min_rating,
       flags: flags.length > 0 ? flags : undefined,
-      resultCount: Math.min(result_count, 10)
+      resultCount: effectiveResultCount + 1  // Request 1 extra to check hasMore
     });
 
     if (!tours || tours.length === 0) {
       return {
         success: true,
         tours: [],
+        hasMore: false,
         message: `No tours found in ${destination} matching your criteria.`,
         suggestion: 'Try broadening your search or checking different dates.'
       };
     }
 
+    // Check if there are more results beyond what we're returning
+    const hasMore = tours.length > effectiveResultCount;
+    const toursToReturn = tours.slice(0, effectiveResultCount);
+
     // Check if results are mostly transfers (not actual tours)
     const transferKeywords = ['transfer', 'chauffeur', 'airport', 'taxi', 'transportation', 'pickup', 'drop-off'];
-    const actualTours = tours.filter(t => {
+    const actualTours = toursToReturn.filter(t => {
       const name = (t.name || '').toLowerCase();
       return !transferKeywords.some(kw => name.includes(kw));
     });
-    
-    const onlyTransfers = actualTours.length === 0 && tours.length > 0;
-    const mostlyTransfers = actualTours.length < tours.length / 2 && actualTours.length < 3;
 
-    logger.info(`Found ${tours.length} tours in ${searchDestination} (${actualTours.length} actual tours, sorted by: ${sort_by})`);
+    const onlyTransfers = actualTours.length === 0 && toursToReturn.length > 0;
+    const mostlyTransfers = actualTours.length < toursToReturn.length / 2 && actualTours.length < 3;
+
+    logger.info(`Found ${tours.length} tours in ${searchDestination}, returning ${toursToReturn.length} (hasMore: ${hasMore})`);
 
     return {
       success: true,
       destination: searchDestination,
-      tourCount: tours.length,
+      destinationId: destinationId,  // For "See more" navigation
+      tourCount: toursToReturn.length,
       actualTourCount: actualTours.length,
-      tours: tours,
+      tours: toursToReturn,
+      hasMore: hasMore,  // Frontend uses this for "See more" button
       sortedBy: sort_by,
+      searchTerms: interests.join(' '),  // For "See more" navigation
       onlyTransfers: onlyTransfers,
       mostlyTransfers: mostlyTransfers,
-      suggestion: onlyTransfers 
+      suggestion: onlyTransfers
         ? `${destination} mainly has private transfers. Consider searching for a nearby larger city for more tour options.`
         : mostlyTransfers
         ? `Limited tours available in ${destination}. You might find more options in a nearby larger city.`
