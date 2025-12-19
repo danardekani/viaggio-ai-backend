@@ -339,7 +339,9 @@ const US_STATE_MAPPINGS = {
 };
 
 // Nearby destination fallbacks for cities that don't exist in Viator
+// Maps city names to nearby alternatives that DO exist in Viator
 const NEARBY_DESTINATION_FALLBACKS = {
+  // New Jersey Shore towns -> Atlantic City (the main NJ beach destination in Viator)
   'ocean city': ['Atlantic City', 'Philadelphia'],
   'wildwood': ['Atlantic City', 'Philadelphia'],
   'cape may': ['Atlantic City', 'Philadelphia'],
@@ -347,6 +349,7 @@ const NEARBY_DESTINATION_FALLBACKS = {
   'point pleasant': ['Atlantic City', 'Philadelphia'],
   'long beach island': ['Atlantic City', 'Philadelphia'],
   'asbury park': ['Atlantic City', 'Philadelphia'],
+  // Other common fallbacks
   'hoboken': ['New York City', 'Jersey City'],
   'jersey city': ['New York City'],
   'newark': ['New York City'],
@@ -364,10 +367,12 @@ function getStateVariations(stateHint) {
   const hint = stateHint.toLowerCase().trim();
   const variations = [hint];
   
+  // If it's a full state name, add the abbreviation
   if (US_STATE_MAPPINGS[hint]) {
     variations.push(US_STATE_MAPPINGS[hint]);
   }
   
+  // If it's an abbreviation, add the full name
   if (US_STATE_ABBREV_TO_NAME[hint]) {
     variations.push(US_STATE_ABBREV_TO_NAME[hint]);
   }
@@ -406,101 +411,74 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // If we have a hint, verify even single matches
   if (matches.length === 1 && countryHint) {
     const match = matches[0];
+    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
-    // FIXED: Normalize all IDs to strings for consistent map lookups
-    const destMap = new Map(destinations.map(d => [String(d.destinationId), d]));
-    
-    // Split hint into parts first (e.g., "sicily, italy" -> ["sicily", "italy"])
-    const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-    
-    // Build all hint variations including each part separately
-    const hintVariations = new Set([countryHint]);
-    
-    for (const part of hintParts) {
-      hintVariations.add(part);
-      
-      // Add country aliases
-      if (COUNTRY_ALIASES[part]) {
-        COUNTRY_ALIASES[part].forEach(alias => hintVariations.add(alias));
-      }
-      
-      // Add US state variations
-      const stateVars = getStateVariations(part);
-      stateVars.forEach(v => hintVariations.add(v));
-    }
-    
-    // Also add variations for the full hint
+    // Get hint variations
+    const hintVariations = [countryHint];
     if (COUNTRY_ALIASES[countryHint]) {
-      COUNTRY_ALIASES[countryHint].forEach(alias => hintVariations.add(alias));
+      hintVariations.push(...COUNTRY_ALIASES[countryHint]);
     }
-    
-    const hintArray = Array.from(hintVariations);
-    logger.info(`Verifying "${match.name}" against hints: [${hintArray.slice(0, 8).join(', ')}${hintArray.length > 8 ? '...' : ''}]`);
+    const stateVariations = getStateVariations(countryHint);
+    hintVariations.push(...stateVariations);
     
     // Check if this single match actually matches the hint
     let matchesHint = false;
-    let matchedVia = '';
     
     // Check destination name itself
     const destName = (match.destinationName || match.name || '').toLowerCase();
-    for (const hint of hintArray) {
-      if (destName.includes(hint)) {
-        matchesHint = true;
-        matchedVia = `destination name contains "${hint}"`;
-        break;
-      }
+    if (hintVariations.some(hint => destName.includes(hint))) {
+      matchesHint = true;
     }
     
-    // Check ancestry chain - FIXED: proper parent traversal with string IDs
+    // Check ancestry
     if (!matchesHint) {
-      // Start from the match and traverse UP the parent chain
-      let currentId = String(match.parentDestinationId);
+      let currentDest = match;
       let depth = 0;
-      const visitedIds = new Set([String(match.destinationId)]); // Prevent loops
-      
-      while (currentId && depth < 10) {
-        const parentDest = destMap.get(currentId);
-        
-        if (!parentDest) {
-          logger.info(`  Ancestry depth ${depth}: parent ID ${currentId} not found in map`);
+      while (currentDest && depth < 5) {
+        const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
+        if (hintVariations.some(hint => parentName.includes(hint))) {
+          matchesHint = true;
           break;
         }
-        
-        if (visitedIds.has(currentId)) {
-          logger.warn(`  Ancestry loop detected at ID ${currentId}`);
+        if (currentDest.parentDestinationId) {
+          currentDest = destMap.get(currentDest.parentDestinationId);
+        } else {
           break;
         }
-        visitedIds.add(currentId);
-        
-        const parentName = (parentDest.destinationName || parentDest.name || '').toLowerCase();
-        logger.info(`  Ancestry depth ${depth}: "${parentDest.name}" (ID: ${currentId})`);
-        
-        // Check if ANY hint matches this ancestor
-        for (const hint of hintArray) {
-          if (parentName.includes(hint) || parentName === hint) {
-            matchesHint = true;
-            matchedVia = `parent "${parentDest.name}" matches hint "${hint}"`;
-            break;
-          }
-        }
-        
-        if (matchesHint) break;
-        
-        // Move to next parent - FIXED: convert to string
-        currentId = parentDest.parentDestinationId ? String(parentDest.parentDestinationId) : null;
         depth++;
       }
     }
     
     if (matchesHint) {
-      logger.info(`✓ Verified "${match.name}" (ID: ${match.destinationId}) - ${matchedVia}`);
+      logger.info(`Single match "${match.name}" verified against hint "${countryHint}"`);
       return match;
     } else {
-      // Match doesn't appear to be in the hinted region
-      // But be careful - only fall back if we're confident it's wrong
-      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) ancestry did not match hint "${countryHint}"`);
+      // Single match doesn't match the hint - this is likely wrong!
+      // Try to find the state/region as a destination instead
+      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
       
-      // Check for known nearby destination fallbacks (for cities that don't exist in Viator)
+      // Split the hint by comma to get individual parts (e.g., "new jersey, united states" -> ["new jersey", "united states"])
+      const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+      
+      // Build expanded hint variations including split parts
+      const expandedHints = [...hintVariations];
+      for (const part of hintParts) {
+        if (!expandedHints.includes(part)) {
+          expandedHints.push(part);
+        }
+        // Add state variations for each part
+        const partVariations = getStateVariations(part);
+        for (const v of partVariations) {
+          if (!expandedHints.includes(v)) {
+            expandedHints.push(v);
+          }
+        }
+      }
+      
+      logger.info(`Searching for fallback with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
+      
+      // FIRST: Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
+      // This gives more relevant results than falling back to entire state
       const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
       if (nearbyFallbacks) {
         for (const fallbackName of nearbyFallbacks) {
@@ -515,64 +493,24 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         }
       }
       
-      // CHANGED: Don't automatically fall back to region - return the city match
-      // The ancestry check may have failed due to data issues, but we found the city
-      // Only fall back to region if the city is clearly in the WRONG country/region
-      // (e.g., Paris, France vs Paris, Texas - different parent chains entirely)
-      
-      // Check if we should really reject this match
-      // If the match has NO parents or we couldn't traverse, trust the name match
-      const matchParentId = match.parentDestinationId ? String(match.parentDestinationId) : null;
-      const hasAncestry = matchParentId && destMap.has(matchParentId);
-      
-      if (!hasAncestry) {
-        logger.info(`Returning "${match.name}" - no ancestry data available to verify hint`);
-        return match;
-      }
-      
-      // For regions/countries in the hint, check if there's a DIFFERENT region with same name
-      // that we should fall back to (e.g., searching for city not in Viator)
-      for (const hint of hintArray) {
-        if (hint.length < 4 || hint === 'us' || hint === 'usa' || hint === 'italy') continue;
+      // SECOND: Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
+      // This is a broader fallback if no nearby city is available
+      for (const hintVar of expandedHints) {
+        // Skip very short or generic terms
+        if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
         
-        // Look for a region/state destination matching the hint
         const regionMatch = destinations.find(d => {
           const name = (d.destinationName || d.name || '').toLowerCase();
-          const type = d.type || '';
-          // Only consider REGION or STATE type destinations as fallbacks
-          return (type === 'REGION' || type === 'STATE' || type === 'COUNTRY') && 
-                 (name === hint || name.includes(hint));
+          return name === hintVar || name.includes(hintVar);
         });
-        
-        if (regionMatch && String(regionMatch.destinationId) !== String(match.destinationId)) {
-          // Found a region - but only use it if the city truly isn't in it
-          // Check if city's parent chain includes this region
-          let cityIsInRegion = false;
-          let checkId = matchParentId;
-          let checkDepth = 0;
-          
-          while (checkId && checkDepth < 10) {
-            if (checkId === String(regionMatch.destinationId)) {
-              cityIsInRegion = true;
-              break;
-            }
-            const parent = destMap.get(checkId);
-            if (!parent) break;
-            checkId = parent.parentDestinationId ? String(parent.parentDestinationId) : null;
-            checkDepth++;
-          }
-          
-          if (cityIsInRegion) {
-            // City IS in this region - return the city, not the region
-            logger.info(`Verified "${match.name}" IS within region "${regionMatch.name}" - returning city`);
-            return match;
-          }
+        if (regionMatch && regionMatch.destinationId !== match.destinationId) {
+          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
+          return regionMatch;
         }
       }
       
-      // Default: return the original match
-      // It's better to search a specific city than an entire region
-      logger.info(`Returning "${match.name}" - best available match for "${query}"`);
+      // No better match found, return the original with a warning logged
+      logger.warn(`Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`);
       return match;
     }
   }
@@ -584,19 +522,23 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // Multiple matches - try to disambiguate
   logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
   
+  // If we have a country/state hint, try to find a match whose ancestry includes it
   if (countryHint) {
+    // Get all possible names to match against (country aliases + US state variations)
     const hintVariations = [countryHint];
     
+    // Add country aliases
     if (COUNTRY_ALIASES[countryHint]) {
       hintVariations.push(...COUNTRY_ALIASES[countryHint]);
     }
     
+    // Add US state variations (e.g., "new jersey" -> also check "nj")
     const stateVariations = getStateVariations(countryHint);
     hintVariations.push(...stateVariations);
     
     logger.info(`Disambiguation hints for "${countryHint}": ${hintVariations.join(', ')}`);
     
-    // Check if any match has the hint in its own name
+    // FIRST: Check if any match has the hint in its own name (e.g., "Ocean City, NJ")
     for (const match of matches) {
       const destName = (match.destinationName || match.name || '').toLowerCase();
       if (hintVariations.some(hint => destName.includes(hint))) {
@@ -605,21 +547,25 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
+    // Build destination map for ancestry lookup
     const destMap = new Map(destinations.map(d => [d.destinationId, d]));
     
     for (const match of matches) {
+      // Check the ancestry of this destination for the hint
       let currentDest = match;
       let depth = 0;
-      const maxDepth = 5;
+      const maxDepth = 5; // Prevent infinite loops
       
       while (currentDest && depth < maxDepth) {
         const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
         
+        // Check if any parent matches the hint variations
         if (hintVariations.some(hint => parentName.includes(hint))) {
           logger.info(`Disambiguated to "${match.name}" based on hint "${countryHint}" (matched parent: ${parentName})`);
           return match;
         }
         
+        // Move up the ancestry chain
         if (currentDest.parentDestinationId) {
           currentDest = destMap.get(currentDest.parentDestinationId);
         } else {
@@ -629,7 +575,7 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    // Check direct parent
+    // Also check if any match has the hint in its parent name directly
     for (const match of matches) {
       const parentId = match.parentDestinationId;
       if (parentId) {
@@ -656,12 +602,15 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
     }
   }
   
-  // Prefer CITY type, then lower IDs
+  // Prefer destinations with higher lookup frequency (major cities tend to have lower IDs in Viator)
+  // Also prefer CITY type over REGION or other types
   matches.sort((a, b) => {
+    // Prefer CITY type
     const aIsCity = a.type === 'CITY' ? 1 : 0;
     const bIsCity = b.type === 'CITY' ? 1 : 0;
     if (aIsCity !== bIsCity) return bIsCity - aIsCity;
     
+    // Prefer lower IDs (generally more popular destinations)
     return (a.destinationId || 999999) - (b.destinationId || 999999);
   });
   
@@ -736,7 +685,7 @@ function applyFilters(filtering, options) {
  * @param {string} params.destination - City name
  * @param {string} params.destinationId - Optional destination ID (skips name lookup if provided)
  * @param {string} params.searchTerms - Keywords to filter by
- * @param {number} params.resultCount - Number of results (default 10, max ~500)
+ * @param {number} params.resultCount - Number of results (default 10, no max - fetches all)
  * @param {string} params.sortBy - Sort option
  * @param {string} params.startDate - Optional start date (YYYY-MM-DD)
  * @param {string} params.endDate - Optional end date (YYYY-MM-DD)
@@ -749,7 +698,7 @@ function applyFilters(filtering, options) {
  */
 export async function searchTours({ 
   destination, 
-  destinationId = null,
+  destinationId = null,  // NEW: Accept destination ID directly
   searchTerms = '', 
   resultCount = 10,
   sortBy = 'popular',
@@ -774,12 +723,12 @@ export async function searchTours({
   if (minDuration || maxDuration) filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
   if (minRating) filterSummary.push(`rating: ${minRating}+`);
 
-  logger.info(`Searching tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", count: ${resultCount}, sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
+  logger.info(`Searching ALL tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
 
   try {
     const filterOptions = { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating };
     
-    // Use searchByDestinationId for all searches - it handles pagination with limits
+    // Use searchByDestinationId for all searches - it handles pagination to get ALL results
     return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions, destinationId);
 
   } catch (error) {
@@ -789,86 +738,116 @@ export async function searchTours({
 }
 
 // ============================================================================
-// SEARCH BY DESTINATION ID - WITH PARALLEL FETCHING FOR SPEED
-// ============================================================================
-// OPTIMIZED: Fetches pages in parallel (5 pages = 250 tours in ~2-3 seconds)
+// SEARCH BY DESTINATION ID (Fallback with optional filtering)
 // ============================================================================
 
 async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}, providedDestinationId = null) {
   let destInfo;
   
-  // Use provided destination ID if available (faster - skips lookup)
+  // Use provided destination ID if available
   if (providedDestinationId) {
     destInfo = { id: parseInt(providedDestinationId), name: destination };
-    logger.info(`Using provided destination ID ${providedDestinationId} (skipped lookup)`);
+    logger.info(`Using provided destination ID ${providedDestinationId} for search`);
   } else {
     destInfo = await findDestination(destination);
     if (!destInfo) {
       logger.warn(`Destination not found: ${destination}`);
-      return { tours: [], totalCount: 0, hasMore: false, fetchedCount: 0 };
+      return [];
     }
   }
 
   const tags = getTagsFromSearchTerms(filterTerms);
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
+  const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
+  const MAX_RESULTS = 5000; // Safety limit to prevent runaway requests
   
-  // =========================================================================
-  // PAGINATION LIMITS - OPTIMIZED FOR SPEED
-  // =========================================================================
-  const PAGE_SIZE = 50;      // Viator API max per request
-  const MAX_RESULTS = 250;   // Cap at 250 results (5 pages - plenty for browsing!)
-  const MAX_PAGES = 5;       // 5 pages fetched in parallel = fast!
-  // =========================================================================
-  
-  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}, max=${MAX_RESULTS}`);
+  logger.info(`Searching ALL tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
-  // Build base search body
-  const buildSearchBody = (startIndex) => ({
-    filtering: {
-      destination: destInfo.id,
-      ...(tags.length > 0 ? { tags } : {}),
-      ...applyFiltersToObject(filterOptions)
-    },
-    sorting: viatorSort,
-    pagination: {
-      start: startIndex,
-      count: PAGE_SIZE
-    },
-    currency: 'USD'
-  });
+  let allProducts = [];
+  let currentStart = 1;
+  let totalCount = 0;
+  let hasMore = true;
 
-  // Helper to apply filters and return object
-  function applyFiltersToObject(options) {
-    const filters = {};
-    const { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating } = options;
-    
-    if (startDate) filters.startDate = startDate;
-    if (endDate) filters.endDate = endDate;
-    if (flags?.length > 0) filters.flags = flags;
-    if (minPrice !== undefined && minPrice !== null) filters.lowestPrice = minPrice;
-    if (maxPrice !== undefined && maxPrice !== null) filters.highestPrice = maxPrice;
-    
-    if (minDuration !== undefined || maxDuration !== undefined) {
-      filters.durationInMinutes = {};
-      if (minDuration !== undefined && minDuration !== null) filters.durationInMinutes.from = minDuration;
-      if (maxDuration !== undefined && maxDuration !== null) filters.durationInMinutes.to = maxDuration;
+  // Fetch ALL pages of results until we have everything
+  while (hasMore && allProducts.length < MAX_RESULTS) {
+    const searchBody = {
+      filtering: {
+        destination: destInfo.id
+      },
+      sorting: viatorSort,
+      pagination: {
+        start: currentStart,
+        count: PAGE_SIZE
+      },
+      currency: 'USD'
+    };
+
+    if (tags.length > 0) {
+      searchBody.filtering.tags = tags;
     }
-    
-    if (minRating !== undefined && minRating !== null && minRating > 0) {
-      filters.rating = { from: minRating };
+
+    applyFilters(searchBody.filtering, filterOptions);
+
+    const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(searchBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Viator search error (page ${currentPage}): ${response.status} - ${errorText}`);
+      break;
     }
+
+    const data = await response.json();
+    const pageProducts = data.products || [];
+    totalCount = data.totalCount || 0;
+
+    allProducts = [...allProducts, ...pageProducts];
     
-    return filters;
+    const pageNum = Math.ceil(currentStart / PAGE_SIZE);
+    logger.info(`Page ${pageNum}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
+
+    // Check if there are more results
+    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+    currentStart += PAGE_SIZE;
   }
 
-  // Fetch a single page
-  const fetchPage = async (pageNum) => {
-    const startIndex = (pageNum - 1) * PAGE_SIZE + 1;
-    const searchBody = buildSearchBody(startIndex);
+  logger.info(`Fetched ${allProducts.length} total tours for ${destination} (API reported ${totalCount} available)`);
+
+  // If tag filtering returned 0 results, try again without tags
+  if (allProducts.length === 0 && tags.length > 0) {
+    logger.info(`No results with tags, retrying without tag filter`);
     
-    try {
-      const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+    const retryBody = {
+      filtering: {
+        destination: destInfo.id
+      },
+      sorting: viatorSort,
+      pagination: {
+        start: 1,
+        count: PAGE_SIZE
+      },
+      currency: 'USD'
+    };
+
+    applyFilters(retryBody.filtering, filterOptions);
+
+    // Fetch ALL pages without tags
+    let retryStart = 1;
+    let retryHasMore = true;
+    
+    while (retryHasMore && allProducts.length < MAX_RESULTS) {
+      retryBody.pagination.start = retryStart;
+      
+      const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
         method: 'POST',
         headers: {
           'exp-api-key': API_KEY,
@@ -876,104 +855,68 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
           'Accept-Language': 'en-US',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(searchBody)
+        body: JSON.stringify(retryBody)
       });
 
-      if (!response.ok) {
-        logger.error(`Page ${pageNum} fetch failed: ${response.status}`);
-        return { products: [], totalCount: 0, pageNum };
+      if (retryResponse.ok) {
+        const retryData = await retryResponse.json();
+        const retryProducts = retryData.products || [];
+        totalCount = retryData.totalCount || 0;
+        
+        allProducts = [...allProducts, ...retryProducts];
+        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+        retryStart += PAGE_SIZE;
+      } else {
+        break;
       }
-
-      const data = await response.json();
-      return {
-        products: data.products || [],
-        totalCount: data.totalCount || 0,
-        pageNum
-      };
-    } catch (error) {
-      logger.error(`Page ${pageNum} error: ${error.message}`);
-      return { products: [], totalCount: 0, pageNum };
     }
-  };
-
-  const startTime = Date.now();
-
-  // PARALLEL FETCH: Get first page to know total, then fetch remaining pages in parallel
-  const firstPageResult = await fetchPage(1);
-  let allProducts = [...firstPageResult.products];
-  let totalCount = firstPageResult.totalCount;
-
-  logger.info(`Page 1: ${firstPageResult.products.length} tours (${totalCount} total available)`);
-
-  // Calculate how many more pages we need (up to MAX_PAGES)
-  const totalPagesAvailable = Math.ceil(totalCount / PAGE_SIZE);
-  const pagesToFetch = Math.min(totalPagesAvailable, MAX_PAGES);
-
-  if (pagesToFetch > 1 && firstPageResult.products.length === PAGE_SIZE) {
-    // Fetch remaining pages IN PARALLEL
-    const pagePromises = [];
-    for (let page = 2; page <= pagesToFetch; page++) {
-      pagePromises.push(fetchPage(page));
-    }
-
-    const pageResults = await Promise.all(pagePromises);
     
-    for (const result of pageResults) {
-      allProducts = [...allProducts, ...result.products];
-      logger.info(`Page ${result.pageNum}: +${result.products.length} tours (total: ${allProducts.length})`);
-    }
-  }
-
-  const fetchTime = Date.now() - startTime;
-  logger.info(`Fetched ${allProducts.length} tours in ${fetchTime}ms (${pagesToFetch} pages parallel)`);
-
-  // If tag filtering returned 0 results, try without tags
-  if (allProducts.length === 0 && tags.length > 0) {
-    logger.info('No results with tags, retrying without...');
-    const retryResult = await fetchPage(1);
-    allProducts = retryResult.products;
-    totalCount = retryResult.totalCount;
+    logger.info(`Retry without tags found ${allProducts.length} total tours`);
   }
 
   let products = allProducts;
 
-  // Apply client-side filtering if needed
+  // Apply client-side filtering if we have search terms but no tag results
   if (filterTerms && products.length > 0 && tags.length === 0) {
     const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
     
     const filteredProducts = products.filter(product => {
       const title = (product.title || '').toLowerCase();
       const description = (product.description || '').toLowerCase();
-      return filterWords.some(word => title.includes(word) || description.includes(word));
+      const searchText = `${title} ${description}`;
+      return filterWords.some(word => searchText.includes(word));
     });
+
+    logger.info(`Client-side filtered ${products.length} tours down to ${filteredProducts.length} matching "${filterTerms}"`);
 
     if (filteredProducts.length > 0) {
       products = filteredProducts;
-      logger.info(`Filtered to ${products.length} matching "${filterTerms}"`);
+    } else {
+      logger.info(`No tours matched filter "${filterTerms}", returning all tours instead`);
     }
   }
 
   // Apply client-side sorting by review count if requested
   if (sortBy === 'reviews' && products.length > 0) {
     products.sort((a, b) => {
-      const reviewsA = a.reviews?.totalReviews || 0;
-      const reviewsB = b.reviews?.totalReviews || 0;
+      const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
+      const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
       return reviewsB - reviewsA;
     });
+    logger.info(`Sorted ${products.length} tours by review count (top: ${products[0]?.reviews?.totalReviews || products[0]?.reviewCount || 0} reviews)`);
   }
 
-  // Filter out/deprioritize transfers
+  // Filter out/deprioritize transfers - actual tours should come first
   products = filterTransfers(products, false);
-
-  // Format and return with metadata
-  const formattedTours = products.map(p => formatTourResult(p));
   
-  return {
-    tours: formattedTours,
-    totalCount: totalCount,
-    hasMore: totalCount > formattedTours.length,
-    fetchedCount: formattedTours.length
-  };
+  // If ALL results are transfers, log a warning
+  const actualTours = products.filter(p => !isTransferProduct(p));
+  if (actualTours.length === 0 && products.length > 0) {
+    logger.warn(`Only transfers found for ${destination}, no actual tours available`);
+  }
+
+  // Return ALL results (no slicing)
+  return products.map(p => formatTourResult(p));
 }
 
 // ============================================================================
@@ -981,6 +924,8 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 // ============================================================================
 
 export async function getTourDetails(productCode) {
+  logger.info(`Fetching tour details for: ${productCode}`);
+  
   const response = await fetch(`${VIATOR_API_BASE}/products/${productCode}`, {
     method: 'GET',
     headers: {
@@ -995,6 +940,23 @@ export async function getTourDetails(productCode) {
   }
 
   const product = await response.json();
+  
+  // Debug logging to see what Viator returns
+  logger.info(`Tour ${productCode} raw data:`, {
+    hasImages: !!product.images,
+    imageCount: product.images?.length || 0,
+    hasFlags: !!product.flags,
+    flagCount: product.flags?.length || 0,
+    hasCancellationPolicy: !!product.cancellationPolicy,
+    cancellationType: product.cancellationPolicy?.type,
+    hasItinerary: !!product.itinerary,
+    skipTheLine: product.itinerary?.skipTheLine,
+    privateTour: product.itinerary?.privateTour,
+    hasPricing: !!product.pricing,
+    pricingSummary: product.pricing?.summary,
+    hasPricingInfo: !!product.pricingInfo
+  });
+  
   return formatTourResult(product);
 }
 
@@ -1003,44 +965,216 @@ export async function getTourDetails(productCode) {
 // ============================================================================
 
 function formatTourResult(product) {
-  const price = product.pricing?.summary?.fromPrice || 0;
+  // Price extraction with multiple fallbacks
+  let price = product.pricing?.summary?.fromPrice || 0;
   
+  // Fallback to pricingInfo if pricing.summary is missing
+  if (!price && product.pricingInfo) {
+    // Try to get from ageBands (adult price)
+    const adultBand = product.pricingInfo.ageBands?.find(b => 
+      b.ageBand === 'ADULT' || b.ageBand === 'TRAVELER'
+    );
+    if (adultBand) {
+      price = adultBand.prices?.[0]?.price || adultBand.retailPrice || 0;
+    }
+  }
+  
+  // Check for original price before discount (for special offers)
+  const originalPrice = product.pricing?.summary?.fromPriceBeforeDiscount || null;
+  const hasDiscount = originalPrice && originalPrice > price;
+
+  // Determine pricing type - crucial for correct price display
+  // Viator uses: TRAVELLER (per person), UNIT (per group/vehicle), etc.
+  // If pricingUnit is UNIT or if it's a private tour, it's likely per-group pricing
+  const pricingUnit = product.pricing?.summary?.pricingUnit || 
+                      product.pricingInfo?.type || 
+                      'TRAVELLER'; // Default to per-person
+  
+  // Also check if tour name suggests it's a private/group tour
+  const title = (product.title || '').toLowerCase();
+  const isPrivateTour = title.includes('private') || 
+                        title.includes('per group') ||
+                        title.includes('per vehicle') ||
+                        title.includes('charter');
+  
+  // Determine if price is per person or per group
+  const isPerPerson = pricingUnit === 'TRAVELLER' || 
+                      pricingUnit === 'PER_PERSON' ||
+                      pricingUnit === 'PERSON';
+  const isPerGroup = pricingUnit === 'UNIT' || 
+                     pricingUnit === 'PER_GROUP' ||
+                     pricingUnit === 'GROUP' ||
+                     pricingUnit === 'VEHICLE' ||
+                     isPrivateTour;
+  
+  // Final pricing type: 'person' or 'group'
+  const pricingType = isPerGroup ? 'group' : 'person';
+  
+  // Get max group size if available (for per-group pricing)
+  const maxGroupSize = product.pricing?.summary?.paxRange?.max || 
+                       product.pricingInfo?.groupPricing?.maxGroupSize ||
+                       null;
+
+  // Duration - handle various formats
   let duration = 'Varies';
+  let durationMinutes = null;
   if (product.duration?.fixedDurationInMinutes) {
-    const hours = Math.floor(product.duration.fixedDurationInMinutes / 60);
-    const mins = product.duration.fixedDurationInMinutes % 60;
+    durationMinutes = product.duration.fixedDurationInMinutes;
+    const hours = Math.floor(durationMinutes / 60);
+    const mins = durationMinutes % 60;
     if (hours === 0) duration = `${mins} minutes`;
-    else if (mins === 0) duration = `${hours} hours`;
+    else if (mins === 0) duration = `${hours} hour${hours > 1 ? 's' : ''}`;
     else duration = `${hours}h ${mins}m`;
+  } else if (product.duration?.variableDurationFromMinutes) {
+    const fromMins = product.duration.variableDurationFromMinutes;
+    const toMins = product.duration.variableDurationToMinutes;
+    const fromHours = Math.floor(fromMins / 60);
+    const toHours = Math.floor(toMins / 60);
+    duration = `${fromHours}-${toHours} hours`;
+    durationMinutes = fromMins;
   }
 
   const rating = product.reviews?.combinedAverageRating?.toFixed(1) || 'New';
   const reviewCount = product.reviews?.totalReviews || 0;
 
-  let image = null;
-  if (product.images?.[0]?.variants) {
-    const variant = product.images[0].variants.find(v => v.width >= 400 && v.width <= 720) ||
-                    product.images[0].variants[product.images[0].variants.length - 1];
-    image = variant?.url;
+  // Get multiple images for gallery
+  let images = [];
+  
+  // Try images array first (from search results)
+  if (product.images && product.images.length > 0) {
+    images = product.images.slice(0, 8).map(img => {
+      // Handle different image formats
+      if (typeof img === 'string') return img;
+      
+      // Find best variant (prefer medium size)
+      const variant = img.variants?.find(v => v.width >= 400 && v.width <= 720) ||
+                      img.variants?.find(v => v.width >= 200) ||
+                      img.variants?.[img.variants.length - 1];
+      return variant?.url || img.url;
+    }).filter(Boolean);
   }
+  
+  // Fallback: try photoUrl or coverPhoto (some API responses use these)
+  if (images.length === 0 && product.photoUrl) {
+    images = [product.photoUrl];
+  }
+  if (images.length === 0 && product.coverPhoto?.url) {
+    images = [product.coverPhoto.url];
+  }
+  
+  // Log for debugging
+  logger.debug(`Images extracted for ${product.productCode}: ${images.length} images`);
+  
+  const image = images[0] || null;
 
   const productCode = product.productCode;
   const bookingLink = product.productUrl || buildAffiliateLink(productCode);
+
+  // Helper to safely extract string from potentially nested objects
+  const extractString = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      // Handle {type, description} or {description} objects
+      return value.description || value.otherDescription || value.typeDescription || value.name || value.type || JSON.stringify(value);
+    }
+    return String(value);
+  };
+
+  // Extract highlights/inclusions - handle nested objects
+  const inclusions = product.inclusions?.map(i => {
+    const desc = i.otherDescription || i.typeDescription || i.description || i;
+    return extractString(desc);
+  }).filter(Boolean) || [];
+  
+  const exclusions = product.exclusions?.map(e => {
+    const desc = e.otherDescription || e.typeDescription || e.description || e;
+    return extractString(desc);
+  }).filter(Boolean) || [];
+  
+  // Extract itinerary/highlights
+  const itinerary = product.itinerary?.itineraryItems?.map(item => ({
+    name: extractString(item.pointOfInterestLocation?.location?.name || item.description),
+    description: extractString(item.description),
+    duration: item.duration?.fixedDurationInMinutes
+  })) || [];
+
+  // Additional info - ensure all items are strings
+  const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
+  
+  const cancellationPolicy = product.cancellationPolicy?.type || null;
+  
+  // ========================================================================
+  // DERIVE FLAGS from API response fields
+  // The product details endpoint doesn't return flags directly, so we derive them
+  // ========================================================================
+  let derivedFlags = [];
+  
+  // FREE_CANCELLATION: cancellationPolicy.type is NOT 'ALL_SALES_FINAL'
+  if (cancellationPolicy && cancellationPolicy !== 'ALL_SALES_FINAL') {
+    derivedFlags.push('FREE_CANCELLATION');
+  }
+  
+  // SKIP_THE_LINE: itinerary.skipTheLine is true
+  if (product.itinerary?.skipTheLine === true) {
+    derivedFlags.push('SKIP_THE_LINE');
+  }
+  
+  // PRIVATE_TOUR: itinerary.privateTour is true OR title suggests private
+  if (product.itinerary?.privateTour === true || isPrivateTour) {
+    derivedFlags.push('PRIVATE_TOUR');
+  }
+  
+  // SPECIAL_OFFER: has discount pricing
+  if (hasDiscount) {
+    derivedFlags.push('SPECIAL_OFFER');
+  }
+  
+  // LIKELY_TO_SELL_OUT: check tags for 20757 or high review count with high rating
+  const tags = product.tags || [];
+  if (tags.includes(20757) || (reviewCount > 500 && parseFloat(rating) >= 4.5)) {
+    derivedFlags.push('LIKELY_TO_SELL_OUT');
+  }
+  
+  // Merge with any flags from search results (if present)
+  const flags = [...new Set([...(product.flags || []), ...derivedFlags])];
+  
+  // Languages - handle potential object format
+  const languages = product.languageGuides?.map(lg => {
+    if (typeof lg === 'string') return lg;
+    return lg.language || lg.name || extractString(lg);
+  }).filter(Boolean) || [];
 
   return {
     id: productCode,
     name: product.title,
     description: product.description || '',
     duration,
+    durationMinutes,
     rating,
     reviewCount,
     price,
+    originalPrice,      // Original price before discount (null if no discount)
+    hasDiscount,        // True if this tour has a special offer discount
     currency: 'USD',
     image,
-    flags: product.flags || [],
+    images,             // Array of image URLs for gallery
+    flags,              // Derived flags array
     bookingLink,
     link: bookingLink,
-    productCode
+    productCode,
+    // Pricing type information
+    pricingType,        // 'person' or 'group'
+    pricingUnit,        // Raw value from API
+    maxGroupSize,       // Max travelers for group pricing
+    isPrivateTour,      // True if name suggests private tour
+    // Additional details for modal
+    inclusions,
+    exclusions,
+    itinerary,
+    additionalInfo,
+    cancellationPolicy,
+    languages
   };
 }
 
@@ -1052,12 +1186,6 @@ function buildAffiliateLink(productCode) {
     api_version: '2.0'
   });
   return `https://www.viator.com/tours/${productCode}?${params.toString()}`;
-}
-
-function truncateText(text, maxLength) {
-  if (!text) return '';
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength).trim() + '...';
 }
 
 // ============================================================================
@@ -1090,10 +1218,6 @@ export async function debugSearchDestinations(query) {
 // FREETEXT SEARCH (AUTOCOMPLETE)
 // ============================================================================
 
-/**
- * Search for destinations using Viator's freetext search API
- * This provides real-time autocomplete suggestions as users type
- */
 export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   if (!searchTerm || searchTerm.length < 2) {
     return [];
@@ -1105,8 +1229,12 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     const allDestinations = await fetchDestinations();
     const destMap = new Map(allDestinations.map(d => [d.destinationId, d]));
     
+    // Strategy: Combine Viator freetext API with local cache search
+    // This ensures we find multiple cities with the same name (Paris, France vs Paris, Texas)
+    
     let apiResults = [];
     
+    // Try the Viator freetext API first
     try {
       const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
         method: 'POST',
@@ -1157,28 +1285,33 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     }
     
     // Also search local cache for additional matches
+    // This catches cities the API might miss (like Paris, Texas)
     const searchLower = searchTerm.toLowerCase();
     
     const cacheResults = allDestinations
       .filter(d => {
         if (!d.name) return false;
         const nameLower = d.name.toLowerCase();
+        // Match if name starts with search term or equals it exactly
         return nameLower.startsWith(searchLower) || nameLower === searchLower;
       })
       .map(d => {
         const nameLower = d.name.toLowerCase();
         let score = 0;
         
+        // Exact match gets highest score
         if (nameLower === searchLower) score = 100;
+        // Starts with search term
         else if (nameLower.startsWith(searchLower)) score = 80;
         
+        // Boost cities over regions/countries
         if (d.type === 'CITY') score += 15;
         else if (d.type === 'REGION') score += 5;
         
         return { ...d, score };
       })
       .sort((a, b) => b.score - a.score)
-      .slice(0, limit * 2)
+      .slice(0, limit * 2) // Get extra for deduplication
       .map(d => {
         const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
         
@@ -1193,9 +1326,11 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       });
     
     // Merge and deduplicate results
+    // Prefer API results, then add unique cache results
     const seenIds = new Set();
     const mergedResults = [];
     
+    // Add API results first (higher quality matching)
     for (const result of apiResults) {
       if (!seenIds.has(result.destinationId)) {
         seenIds.add(result.destinationId);
@@ -1203,6 +1338,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       }
     }
     
+    // Add cache results that weren't in API results
     for (const result of cacheResults) {
       if (!seenIds.has(result.destinationId) && mergedResults.length < limit) {
         seenIds.add(result.destinationId);
@@ -1210,6 +1346,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       }
     }
     
+    // Remove the source field before returning
     const finalResults = mergedResults.slice(0, limit).map(({ source, ...rest }) => rest);
 
     logger.info(`Autocomplete found ${finalResults.length} destinations for "${searchTerm}" (API: ${apiResults.length}, Cache: ${cacheResults.length})`);
@@ -1223,149 +1360,79 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 
 /**
  * Build a user-friendly display name for a destination
- * 
- * Format rules:
- * - US Cities: "City, State, USA" (e.g., "Philadelphia, Pennsylvania, USA")
- * - Cities with regions: "City, Region, Country" (e.g., "Catania, Sicily, Italy")
- * - Cities without regions: "City, Country" (e.g., "Paris, France")
- * - Regions/States: "Region, Country" (e.g., "Tuscany, Italy")
- * - Countries: Just the name (e.g., "France")
+ * - Country: "France"
+ * - Region: "Tuscany, Italy"
+ * - City: "Paris, France" (not "Paris, Ile-de-France")
+ * - Town/District: "Oia, Santorini, Greece"
  */
 function buildDisplayName(name, destId, destType, destMap) {
-  // CRITICAL: Always return a string
-  if (!name || typeof name !== 'string') {
-    return String(name || 'Unknown');
-  }
+  // Get the full ancestry chain for this destination
+  const ancestry = getDestinationAncestry(destId, destMap);
   
-  // If we don't have the tools to look up ancestry, just return the name
-  if (!destId || !destMap || typeof destMap.get !== 'function') {
+  // Find the country (type === 'COUNTRY') in the ancestry
+  const country = ancestry.find(d => d.type === 'COUNTRY');
+  const countryName = country?.name || null;
+  
+  // Handle different destination types
+  if (destType === 'COUNTRY') {
+    // Countries just show their name
     return name;
   }
   
-  try {
-    // Get the full ancestry chain for this destination
-    const ancestry = getDestinationAncestry(destId, destMap);
-    
-    // Safety check
-    if (!Array.isArray(ancestry)) {
-      return name;
-    }
-    
-    // Find key ancestors
-    const country = ancestry.find(d => d && d.type === 'COUNTRY');
-    const countryName = country?.name || null;
-    const state = ancestry.find(d => d && d.type === 'STATE');
-    const region = ancestry.find(d => d && d.type === 'REGION');
-    const parentCity = ancestry.find(d => d && d.type === 'CITY');
-    
-    // Check if this is a US destination
-    const isUSA = countryName && (
-      countryName.toLowerCase() === 'united states' ||
-      countryName.toLowerCase() === 'usa' ||
-      countryName.toLowerCase() === 'united states of america'
-    );
-    
-    // Handle COUNTRY type
-    if (destType === 'COUNTRY') {
-      return name;
-    }
-    
-    // Handle REGION or STATE type
-    if (destType === 'REGION' || destType === 'STATE') {
-      if (isUSA) {
-        return `${name}, USA`;
-      }
-      return countryName ? `${name}, ${countryName}` : name;
-    }
-    
-    // Handle CITY type
-    if (destType === 'CITY') {
-      if (isUSA && state?.name) {
-        // US format: "Philadelphia, Pennsylvania, USA"
-        return `${name}, ${state.name}, USA`;
-      } else if (region?.name && countryName) {
-        // European/other format with region: "Catania, Sicily, Italy"
-        return `${name}, ${region.name}, ${countryName}`;
-      } else if (countryName) {
-        // Simple format: "Paris, France"
-        return `${name}, ${countryName}`;
-      }
-      return name;
-    }
-    
-    // Handle sub-city types (TOWN, DISTRICT, NEIGHBORHOOD, etc.)
-    if (parentCity?.name) {
-      if (isUSA && state?.name) {
-        return `${name}, ${parentCity.name}, USA`;
-      } else if (countryName) {
-        return `${name}, ${parentCity.name}, ${countryName}`;
-      }
-      return `${name}, ${parentCity.name}`;
-    }
-    
-    // Fallback for other types
-    if (isUSA && state?.name) {
-      return `${name}, ${state.name}, USA`;
-    } else if (region?.name && countryName) {
-      return `${name}, ${region.name}, ${countryName}`;
-    } else if (countryName) {
-      return `${name}, ${countryName}`;
-    }
-    
-    // Last resort: check cached destination for parent name
-    const normalizedId = destId?.toString();
-    const cachedDest = destMap.get(normalizedId) || destMap.get(Number(normalizedId));
-    
-    if (cachedDest?.parentDestinationId) {
-      const parentId = cachedDest.parentDestinationId?.toString();
-      const parent = destMap.get(parentId) || destMap.get(Number(parentId));
-      if (parent?.name) {
-        return `${name}, ${parent.name}`;
-      }
-    }
-    
-    // CRITICAL: Always return the name string as final fallback
-    return name;
-    
-  } catch (error) {
-    // Log error but ALWAYS return a string
-    console.error('Error in buildDisplayName:', error.message);
-    return name || 'Unknown';
+  if (destType === 'REGION' || destType === 'STATE') {
+    // Regions show: "Region, Country"
+    return countryName ? `${name}, ${countryName}` : name;
   }
+  
+  if (destType === 'CITY') {
+    // Cities show: "City, Country"
+    return countryName ? `${name}, ${countryName}` : name;
+  }
+  
+  // For towns, districts, or other sub-city types, show: "Town, City, Country"
+  // Find the parent city in ancestry
+  const parentCity = ancestry.find(d => d.type === 'CITY');
+  
+  if (parentCity && countryName) {
+    return `${name}, ${parentCity.name}, ${countryName}`;
+  } else if (countryName) {
+    return `${name}, ${countryName}`;
+  }
+  
+  // Fallback: just use the immediate parent if we have one
+  const cachedDest = destMap.get(destId);
+  if (cachedDest?.parentDestinationId) {
+    const parent = destMap.get(cachedDest.parentDestinationId);
+    if (parent) {
+      return `${name}, ${parent.name}`;
+    }
+  }
+  
+  return name;
 }
+
 /**
  * Get the ancestry chain for a destination (parent, grandparent, etc.)
- * Returns array of ancestors with their type and name
  */
 function getDestinationAncestry(destId, destMap, maxDepth = 5) {
   const ancestry = [];
-  
-  if (!destId || !destMap) {
-    return ancestry;
-  }
-  
-  // Normalize ID to handle both string and number types
-  let currentId = destId?.toString();
+  let currentId = destId;
   let depth = 0;
   
   while (currentId && depth < maxDepth) {
-    // Try both string and number versions of the ID
-    let dest = destMap.get(currentId) || destMap.get(Number(currentId));
-    
+    const dest = destMap.get(currentId);
     if (!dest) break;
     
-    // Move to parent
+    // Don't include the destination itself, only its ancestors
     if (dest.parentDestinationId) {
-      const parentId = dest.parentDestinationId?.toString();
-      const parent = destMap.get(parentId) || destMap.get(Number(parentId));
-      
+      const parent = destMap.get(dest.parentDestinationId);
       if (parent) {
         ancestry.push({
           id: parent.destinationId,
-          name: parent.name || parent.destinationName,
+          name: parent.name,
           type: parent.type
         });
-        currentId = parentId;
+        currentId = parent.destinationId;
       } else {
         break;
       }
