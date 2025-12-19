@@ -7,6 +7,34 @@ import { logger } from '../../utils/logger.js';
 const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
 const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
+const FETCH_TIMEOUT_MS = 15000; // 15 second timeout for API calls
+
+/**
+ * Fetch with timeout to prevent hanging requests
+ * @param {string} url - URL to fetch
+ * @param {RequestInit} options - Fetch options
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise<Response>}
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    return response;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 // ============================================================================
 // TAG MAPPING - Maps search terms to Viator tag IDs
@@ -80,13 +108,61 @@ const TAG_MAPPING = {
 // Cache for destinations
 let destinationsCache = null;
 let destinationsCacheTime = null;
+let destinationsMapCache = null; // PERFORMANCE: Pre-built Map for O(1) lookups
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+// PERFORMANCE: Cache for tour search results by destination
+// Key: "destId:tags:sort" -> { tours: [], timestamp: Date.now() }
+const tourSearchCache = new Map();
+const TOUR_CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache for tour results
+const MAX_TOUR_CACHE_ENTRIES = 50; // Limit cache size to prevent memory issues
 
 // Clear cache function (for debugging)
 export function clearDestinationCache() {
   destinationsCache = null;
   destinationsCacheTime = null;
+  destinationsMapCache = null;
   logger.info('Destination cache cleared');
+}
+
+// Clear tour search cache
+export function clearTourSearchCache() {
+  tourSearchCache.clear();
+  logger.info('Tour search cache cleared');
+}
+
+// Get cached tour search results
+function getCachedTourSearch(cacheKey) {
+  const cached = tourSearchCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < TOUR_CACHE_DURATION) {
+    logger.info(`Tour cache HIT for ${cacheKey} (${cached.tours.length} tours, age: ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
+    return cached.tours;
+  }
+  if (cached) {
+    tourSearchCache.delete(cacheKey); // Clean up expired entry
+  }
+  return null;
+}
+
+// Store tour search results in cache
+function cacheTourSearch(cacheKey, tours) {
+  // Evict oldest entries if cache is full
+  if (tourSearchCache.size >= MAX_TOUR_CACHE_ENTRIES) {
+    const oldestKey = tourSearchCache.keys().next().value;
+    tourSearchCache.delete(oldestKey);
+    logger.info(`Evicted oldest tour cache entry: ${oldestKey}`);
+  }
+  tourSearchCache.set(cacheKey, { tours, timestamp: Date.now() });
+  logger.info(`Tour cache STORE for ${cacheKey} (${tours.length} tours)`);
+}
+
+// Get cached destination Map (creates it once, reuses afterwards)
+function getDestinationMap(destinations) {
+  if (!destinationsMapCache && destinations) {
+    destinationsMapCache = new Map(destinations.map(d => [d.destinationId, d]));
+    logger.info(`Built destination map with ${destinationsMapCache.size} entries`);
+  }
+  return destinationsMapCache;
 }
 
 // ============================================================================
@@ -118,26 +194,40 @@ function isTransferProduct(product) {
 
 /**
  * Filter and sort products to prioritize actual tours over transfers
+ * PERFORMANCE OPTIMIZED: Single pass partition instead of double filter + spread
  * @param {Array} products - Array of tour products
  * @param {boolean} excludeTransfers - If true, completely exclude transfers
  * @returns {Array} Filtered/sorted products
  */
 function filterTransfers(products, excludeTransfers = false) {
   if (!products || products.length === 0) return products;
-  
-  const tours = products.filter(p => !isTransferProduct(p));
-  const transfers = products.filter(p => isTransferProduct(p));
-  
+
+  // Single pass: partition into tours and transfers
+  const tours = [];
+  const transfers = [];
+
+  for (const p of products) {
+    if (isTransferProduct(p)) {
+      transfers.push(p);
+    } else {
+      tours.push(p);
+    }
+  }
+
   if (excludeTransfers) {
     logger.info(`Filtered out ${transfers.length} transfer products, keeping ${tours.length} tours`);
     return tours;
   }
-  
+
   // Put tours first, transfers at the end
   if (transfers.length > 0) {
     logger.info(`Deprioritized ${transfers.length} transfer products, ${tours.length} tours shown first`);
+    // Use push for better performance than spread
+    for (const t of transfers) {
+      tours.push(t);
+    }
   }
-  return [...tours, ...transfers];
+  return tours;
 }
 
 // ============================================================================
@@ -184,7 +274,7 @@ async function fetchDestinations() {
 
   logger.info('Fetching fresh destinations from Viator...');
 
-  const response = await fetch(`${VIATOR_API_BASE}/destinations`, {
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/destinations`, {
     method: 'GET',
     headers: {
       'exp-api-key': API_KEY,
@@ -381,37 +471,45 @@ function getStateVariations(stateHint) {
 }
 
 // Helper function to find destination match
+// PERFORMANCE OPTIMIZED: Single-pass filtering with scoring instead of 3x array scans
 function findDestinationMatch(destinations, query, stateContext = null, countryHint = null) {
-  // Try exact match first
-  let matches = destinations.filter(dest => {
-    const name = (dest.destinationName || dest.name || '').toLowerCase();
-    return name === query;
-  });
+  // Single pass through destinations with scoring
+  const scoredMatches = [];
 
-  // Try includes match (destination name contains the query)
-  if (matches.length === 0) {
-    matches = destinations.filter(dest => {
-      const name = (dest.destinationName || dest.name || '').toLowerCase();
-      return name.includes(query);
-    });
+  for (const dest of destinations) {
+    const name = (dest.destinationName || dest.name || '').toLowerCase();
+    let score = 0;
+
+    // Exact match - highest priority
+    if (name === query) {
+      score = 100;
+    }
+    // Destination name contains query
+    else if (name.includes(query)) {
+      score = 50;
+    }
+    // Query contains destination name (only for names > 3 chars)
+    else if (name.length > 3 && query.includes(name)) {
+      score = 25;
+    }
+
+    if (score > 0) {
+      scoredMatches.push({ dest, score });
+    }
   }
-  
-  // Try query contains destination name
-  if (matches.length === 0) {
-    matches = destinations.filter(dest => {
-      const name = (dest.destinationName || dest.name || '').toLowerCase();
-      return query.includes(name) && name.length > 3;
-    });
-  }
-  
-  if (matches.length === 0) {
+
+  if (scoredMatches.length === 0) {
     return null;
   }
+
+  // Sort by score descending and extract destinations
+  scoredMatches.sort((a, b) => b.score - a.score);
+  const matches = scoredMatches.map(m => m.dest);
   
   // If we have a hint, verify even single matches
   if (matches.length === 1 && countryHint) {
     const match = matches[0];
-    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    const destMap = getDestinationMap(destinations);
     
     // Get hint variations
     const hintVariations = [countryHint];
@@ -547,8 +645,8 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
       }
     }
     
-    // Build destination map for ancestry lookup
-    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    // Use cached destination map for ancestry lookup
+    const destMap = getDestinationMap(destinations);
     
     for (const match of matches) {
       // Check the ancestry of this destination for the hint
@@ -743,7 +841,7 @@ export async function searchTours({
 
 async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}, providedDestinationId = null) {
   let destInfo;
-  
+
   // Use provided destination ID if available
   if (providedDestinationId) {
     destInfo = { id: parseInt(providedDestinationId), name: destination };
@@ -760,16 +858,37 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
   const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
-  const MAX_RESULTS = 5000; // Safety limit to prevent runaway requests
-  
-  logger.info(`Searching ALL tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
+  const MAX_RESULTS = 1000; // Cap results to keep initial load reasonable (~20 API calls max)
+
+  // PERFORMANCE: Check cache first (only for searches without date filters)
+  const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
+  const cacheKey = `${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
+
+  if (!hasDateFilters) {
+    const cachedResults = getCachedTourSearch(cacheKey);
+    if (cachedResults) {
+      // Apply any additional client-side filtering and return cached results
+      let products = cachedResults;
+      if (filterTerms && tags.length === 0) {
+        const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
+        products = products.filter(p => {
+          const searchText = `${p.name || ''} ${p.description || ''}`.toLowerCase();
+          return filterWords.some(word => searchText.includes(word));
+        });
+      }
+      logger.info(`Returning ${products.length} cached tours for ${destination}`);
+      return products;
+    }
+  }
+
+  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
   let allProducts = [];
   let currentStart = 1;
   let totalCount = 0;
   let hasMore = true;
 
-  // Fetch ALL pages of results until we have everything
+  // Fetch pages until we have enough results (not ALL results)
   while (hasMore && allProducts.length < MAX_RESULTS) {
     const searchBody = {
       filtering: {
@@ -789,7 +908,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
     applyFilters(searchBody.filtering, filterOptions);
 
-    const response = await fetch(`${VIATOR_API_BASE}/products/search`, {
+    const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
       method: 'POST',
       headers: {
         'exp-api-key': API_KEY,
@@ -802,7 +921,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(`Viator search error (page ${currentPage}): ${response.status} - ${errorText}`);
+      logger.error(`Viator search error (page ${Math.ceil(currentStart / PAGE_SIZE)}): ${response.status} - ${errorText}`);
       break;
     }
 
@@ -810,22 +929,22 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     const pageProducts = data.products || [];
     totalCount = data.totalCount || 0;
 
-    allProducts = [...allProducts, ...pageProducts];
-    
+    allProducts.push(...pageProducts); // Use push instead of spread for better performance
+
     const pageNum = Math.ceil(currentStart / PAGE_SIZE);
     logger.info(`Page ${pageNum}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
 
-    // Check if there are more results
-    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+    // Check if there are more results AND we need more
+    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < MAX_RESULTS && allProducts.length < totalCount;
     currentStart += PAGE_SIZE;
   }
 
-  logger.info(`Fetched ${allProducts.length} total tours for ${destination} (API reported ${totalCount} available)`);
+  logger.info(`Fetched ${allProducts.length} tours for ${destination} (API total: ${totalCount}, limit: ${MAX_RESULTS})`);
 
-  // If tag filtering returned 0 results, try again without tags
+  // If tag filtering returned 0 results, try a single page without tags
   if (allProducts.length === 0 && tags.length > 0) {
     logger.info(`No results with tags, retrying without tag filter`);
-    
+
     const retryBody = {
       filtering: {
         destination: destInfo.id
@@ -833,21 +952,21 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
       sorting: viatorSort,
       pagination: {
         start: 1,
-        count: PAGE_SIZE
+        count: Math.min(PAGE_SIZE, MAX_RESULTS) // Only fetch what we need
       },
       currency: 'USD'
     };
 
     applyFilters(retryBody.filtering, filterOptions);
 
-    // Fetch ALL pages without tags
+    // PERFORMANCE FIX: Only fetch pages until we have enough, not ALL pages
     let retryStart = 1;
     let retryHasMore = true;
-    
+
     while (retryHasMore && allProducts.length < MAX_RESULTS) {
       retryBody.pagination.start = retryStart;
-      
-      const retryResponse = await fetch(`${VIATOR_API_BASE}/products/search`, {
+
+      const retryResponse = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
         method: 'POST',
         headers: {
           'exp-api-key': API_KEY,
@@ -862,16 +981,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
         const retryData = await retryResponse.json();
         const retryProducts = retryData.products || [];
         totalCount = retryData.totalCount || 0;
-        
-        allProducts = [...allProducts, ...retryProducts];
-        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < totalCount;
+
+        allProducts.push(...retryProducts); // Use push instead of spread for better performance
+        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < MAX_RESULTS;
         retryStart += PAGE_SIZE;
       } else {
         break;
       }
     }
-    
-    logger.info(`Retry without tags found ${allProducts.length} total tours`);
+
+    logger.info(`Retry without tags found ${allProducts.length} tours`);
   }
 
   let products = allProducts;
@@ -908,15 +1027,23 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
   // Filter out/deprioritize transfers - actual tours should come first
   products = filterTransfers(products, false);
-  
+
   // If ALL results are transfers, log a warning
   const actualTours = products.filter(p => !isTransferProduct(p));
   if (actualTours.length === 0 && products.length > 0) {
     logger.warn(`Only transfers found for ${destination}, no actual tours available`);
   }
 
-  // Return ALL results (no slicing)
-  return products.map(p => formatTourResult(p));
+  // Format all results
+  const formattedResults = products.map(p => formatTourResult(p));
+
+  // PERFORMANCE: Cache the results for subsequent requests (only if no date filters)
+  if (!hasDateFilters) {
+    cacheTourSearch(cacheKey, formattedResults);
+  }
+
+  logger.info(`Returning ${formattedResults.length} tours for ${destination}`);
+  return formattedResults;
 }
 
 // ============================================================================
@@ -925,8 +1052,8 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
 export async function getTourDetails(productCode) {
   logger.info(`Fetching tour details for: ${productCode}`);
-  
-  const response = await fetch(`${VIATOR_API_BASE}/products/${productCode}`, {
+
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/${productCode}`, {
     method: 'GET',
     headers: {
       'exp-api-key': API_KEY,
@@ -1235,7 +1362,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 
   try {
     const allDestinations = await fetchDestinations();
-    const destMap = new Map(allDestinations.map(d => [d.destinationId, d]));
+    const destMap = getDestinationMap(allDestinations);
     
     // Strategy: Combine Viator freetext API with local cache search
     // This ensures we find multiple cities with the same name (Paris, France vs Paris, Texas)
@@ -1244,7 +1371,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
     
     // Try the Viator freetext API first
     try {
-      const response = await fetch(`${VIATOR_API_BASE}/search/freetext`, {
+      const response = await fetchWithTimeout(`${VIATOR_API_BASE}/search/freetext`, {
         method: 'POST',
         headers: {
           'exp-api-key': API_KEY,
@@ -1461,7 +1588,7 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
   try {
     const destinations = await fetchDestinations();
     const searchLower = searchTerm.toLowerCase();
-    const destMap = new Map(destinations.map(d => [d.destinationId, d]));
+    const destMap = getDestinationMap(destinations);
     
     const scored = destinations
       .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
