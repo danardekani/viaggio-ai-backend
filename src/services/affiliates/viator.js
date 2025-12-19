@@ -1102,6 +1102,12 @@ function formatTourResult(product) {
   // Additional info - ensure all items are strings
   const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
   
+  // Extract highlights from viatorUniqueContent (Viator's curated highlights)
+  const highlights = product.viatorUniqueContent?.highlights || [];
+  
+  // Also get insider tips if available
+  const insiderTips = product.viatorUniqueContent?.insiderTips || null;
+  
   const cancellationPolicy = product.cancellationPolicy?.type || null;
   
   // ========================================================================
@@ -1169,6 +1175,8 @@ function formatTourResult(product) {
     maxGroupSize,       // Max travelers for group pricing
     isPrivateTour,      // True if name suggests private tour
     // Additional details for modal
+    highlights,         // From viatorUniqueContent.highlights
+    insiderTips,        // From viatorUniqueContent.insiderTips
     inclusions,
     exclusions,
     itinerary,
