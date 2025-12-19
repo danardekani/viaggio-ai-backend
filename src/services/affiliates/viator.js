@@ -858,7 +858,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
   const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
-  const MAX_RESULTS = 5000; // Safety limit
+  const MAX_RESULTS = 1000; // Cap results to keep initial load reasonable (~20 API calls max)
 
   // PERFORMANCE: Check cache first (only for searches without date filters)
   const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
