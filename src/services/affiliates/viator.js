@@ -111,12 +111,49 @@ let destinationsCacheTime = null;
 let destinationsMapCache = null; // PERFORMANCE: Pre-built Map for O(1) lookups
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// PERFORMANCE: Cache for tour search results by destination
+// Key: "destId:tags:sort" -> { tours: [], timestamp: Date.now() }
+const tourSearchCache = new Map();
+const TOUR_CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache for tour results
+const MAX_TOUR_CACHE_ENTRIES = 50; // Limit cache size to prevent memory issues
+
 // Clear cache function (for debugging)
 export function clearDestinationCache() {
   destinationsCache = null;
   destinationsCacheTime = null;
   destinationsMapCache = null;
   logger.info('Destination cache cleared');
+}
+
+// Clear tour search cache
+export function clearTourSearchCache() {
+  tourSearchCache.clear();
+  logger.info('Tour search cache cleared');
+}
+
+// Get cached tour search results
+function getCachedTourSearch(cacheKey) {
+  const cached = tourSearchCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < TOUR_CACHE_DURATION) {
+    logger.info(`Tour cache HIT for ${cacheKey} (${cached.tours.length} tours, age: ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
+    return cached.tours;
+  }
+  if (cached) {
+    tourSearchCache.delete(cacheKey); // Clean up expired entry
+  }
+  return null;
+}
+
+// Store tour search results in cache
+function cacheTourSearch(cacheKey, tours) {
+  // Evict oldest entries if cache is full
+  if (tourSearchCache.size >= MAX_TOUR_CACHE_ENTRIES) {
+    const oldestKey = tourSearchCache.keys().next().value;
+    tourSearchCache.delete(oldestKey);
+    logger.info(`Evicted oldest tour cache entry: ${oldestKey}`);
+  }
+  tourSearchCache.set(cacheKey, { tours, timestamp: Date.now() });
+  logger.info(`Tour cache STORE for ${cacheKey} (${tours.length} tours)`);
 }
 
 // Get cached destination Map (creates it once, reuses afterwards)
@@ -821,14 +858,30 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const needsClientSort = sortBy === 'reviews';
   const viatorSort = getViatorSort(sortBy);
   const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
+  const MAX_RESULTS = 5000; // Safety limit
 
-  // PERFORMANCE FIX: Limit fetching to what's actually needed
-  // For client-side sorting, we need more results to sort properly, but cap at reasonable limit
-  const needsExtraForSort = needsClientSort || filterTerms;
-  const targetCount = needsExtraForSort ? Math.max(resultCount * 3, 150) : resultCount;
-  const MAX_RESULTS = Math.min(targetCount, 500); // Cap at 500 for safety
+  // PERFORMANCE: Check cache first (only for searches without date filters)
+  const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
+  const cacheKey = `${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
 
-  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}, target=${resultCount}, fetching up to ${MAX_RESULTS}`);
+  if (!hasDateFilters) {
+    const cachedResults = getCachedTourSearch(cacheKey);
+    if (cachedResults) {
+      // Apply any additional client-side filtering and return cached results
+      let products = cachedResults;
+      if (filterTerms && tags.length === 0) {
+        const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
+        products = products.filter(p => {
+          const searchText = `${p.name || ''} ${p.description || ''}`.toLowerCase();
+          return filterWords.some(word => searchText.includes(word));
+        });
+      }
+      logger.info(`Returning ${products.length} cached tours for ${destination}`);
+      return products;
+    }
+  }
+
+  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
   let allProducts = [];
   let currentStart = 1;
@@ -981,11 +1034,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     logger.warn(`Only transfers found for ${destination}, no actual tours available`);
   }
 
-  // PERFORMANCE FIX: Return only the requested number of results
-  const finalProducts = products.slice(0, resultCount);
-  logger.info(`Returning ${finalProducts.length} tours (requested: ${resultCount})`);
+  // Format all results
+  const formattedResults = products.map(p => formatTourResult(p));
 
-  return finalProducts.map(p => formatTourResult(p));
+  // PERFORMANCE: Cache the results for subsequent requests (only if no date filters)
+  if (!hasDateFilters) {
+    cacheTourSearch(cacheKey, formattedResults);
+  }
+
+  logger.info(`Returning ${formattedResults.length} tours for ${destination}`);
+  return formattedResults;
 }
 
 // ============================================================================
