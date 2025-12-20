@@ -13,7 +13,8 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
-import hotelRoutes from './routes/hotels.js';    // at top
+import hotelRoutes from './routes/hotels.js';
+import { warmTourCache } from './services/affiliates/viator.js';
 
 // Import routes
 import trackingRoutes from './routes/tracking.js';
@@ -113,6 +114,15 @@ app.listen(PORT, () => {
   logger.info(`🚀 Viaggio.ai Backend running on port ${PORT}`);
   logger.info(`📡 Environment: ${process.env.NODE_ENV}`);
   logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
+
+  // Pre-warm tour cache in background (non-blocking)
+  // This makes popular destination searches instant from the start
+  if (process.env.WARM_CACHE_ON_STARTUP !== 'false') {
+    logger.info('🔥 Starting cache warm-up in background...');
+    warmTourCache().catch(err => {
+      logger.warn('Cache warm-up failed:', err.message);
+    });
+  }
 });
 
 // Handle graceful shutdown
