@@ -1629,28 +1629,60 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
 // CACHE PRE-WARMING - Popular destinations to cache on startup
 // ============================================================================
 
-// Top 20 most searched destinations with their Viator IDs
+// Popular destinations to pre-warm (IDs are optional - will be looked up if missing)
 const POPULAR_DESTINATIONS = [
+  // Europe
   { id: 511, name: 'Rome' },
   { id: 737, name: 'Paris' },
   { id: 687, name: 'London' },
-  { id: 684, name: 'New York City' },
-  { id: 662, name: 'Las Vegas' },
   { id: 546, name: 'Barcelona' },
   { id: 479, name: 'Amsterdam' },
-  { id: 495, name: 'Dubai' },
-  { id: 485, name: 'Tokyo' },
-  { id: 618, name: 'Sydney' },
   { id: 494, name: 'Florence' },
   { id: 760, name: 'Venice' },
   { id: 525, name: 'Dublin' },
   { id: 496, name: 'Lisbon' },
   { id: 538, name: 'Athens' },
+  { name: 'Prague' },
+  { name: 'Vienna' },
+  { name: 'Santorini' },
+
+  // United States
+  { id: 684, name: 'New York City' },
+  { id: 662, name: 'Las Vegas' },
   { id: 666, name: 'San Francisco' },
   { id: 721, name: 'Miami' },
   { id: 677, name: 'Los Angeles' },
+  { id: 659, name: 'Honolulu' },
+  { name: 'Chicago' },
+  { name: 'Boston' },
+  { name: 'New Orleans' },
+  { name: 'Washington DC' },
+  { name: 'Seattle' },
+  { name: 'Orlando' },
+  { name: 'San Diego' },
+  { name: 'Nashville' },
+
+  // Asia
+  { id: 485, name: 'Tokyo' },
+  { id: 495, name: 'Dubai' },
+  { name: 'Bangkok' },
+  { name: 'Singapore' },
+  { name: 'Hong Kong' },
+  { name: 'Seoul' },
+  { name: 'Bali' },
+  { name: 'Kyoto' },
+  { name: 'Osaka' },
+  { name: 'Taipei' },
+  { name: 'Kuala Lumpur' },
+  { name: 'Ho Chi Minh City' },
+  { name: 'Phuket' },
+
+  // Other popular
+  { id: 618, name: 'Sydney' },
   { id: 561, name: 'Cancun' },
-  { id: 659, name: 'Honolulu' }
+  { name: 'Cabo San Lucas' },
+  { name: 'Reykjavik' },
+  { name: 'Maui' }
 ];
 
 /**
@@ -1667,18 +1699,11 @@ export async function warmTourCache() {
   // Process destinations sequentially to avoid overwhelming the API
   for (const dest of POPULAR_DESTINATIONS) {
     try {
-      // Check if already cached
-      const cacheKey = `${dest.id}::popular`; // No tags, popular sort
-      if (getCachedTourSearch(cacheKey)) {
-        logger.info(`Cache already warm for ${dest.name}`);
-        successCount++;
-        continue;
-      }
-
       // Fetch and cache tours for this destination
+      // If no ID provided, searchTours will look it up via autocomplete
       await searchTours({
         destination: dest.name,
-        destinationId: dest.id.toString(),
+        destinationId: dest.id?.toString(),
         resultCount: 100, // Cache a good amount for browsing
         sortBy: 'popular'
       });
@@ -1687,7 +1712,7 @@ export async function warmTourCache() {
       logger.info(`Warmed cache for ${dest.name} (${successCount}/${POPULAR_DESTINATIONS.length})`);
 
       // Small delay to be nice to the API
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
     } catch (error) {
       failCount++;
