@@ -1626,6 +1626,82 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
 }
 
 // ============================================================================
+// CACHE PRE-WARMING - Popular destinations to cache on startup
+// ============================================================================
+
+// Top 20 most searched destinations with their Viator IDs
+const POPULAR_DESTINATIONS = [
+  { id: 511, name: 'Rome' },
+  { id: 737, name: 'Paris' },
+  { id: 687, name: 'London' },
+  { id: 684, name: 'New York City' },
+  { id: 662, name: 'Las Vegas' },
+  { id: 546, name: 'Barcelona' },
+  { id: 479, name: 'Amsterdam' },
+  { id: 495, name: 'Dubai' },
+  { id: 485, name: 'Tokyo' },
+  { id: 618, name: 'Sydney' },
+  { id: 494, name: 'Florence' },
+  { id: 760, name: 'Venice' },
+  { id: 525, name: 'Dublin' },
+  { id: 496, name: 'Lisbon' },
+  { id: 538, name: 'Athens' },
+  { id: 666, name: 'San Francisco' },
+  { id: 721, name: 'Miami' },
+  { id: 677, name: 'Los Angeles' },
+  { id: 561, name: 'Cancun' },
+  { id: 659, name: 'Honolulu' }
+];
+
+/**
+ * Pre-warm the tour cache with popular destinations
+ * Call this on server startup for instant searches
+ */
+export async function warmTourCache() {
+  logger.info(`Pre-warming tour cache with ${POPULAR_DESTINATIONS.length} popular destinations...`);
+
+  const startTime = Date.now();
+  let successCount = 0;
+  let failCount = 0;
+
+  // Process destinations sequentially to avoid overwhelming the API
+  for (const dest of POPULAR_DESTINATIONS) {
+    try {
+      // Check if already cached
+      const cacheKey = `${dest.id}::popular`; // No tags, popular sort
+      if (getCachedTourSearch(cacheKey)) {
+        logger.info(`Cache already warm for ${dest.name}`);
+        successCount++;
+        continue;
+      }
+
+      // Fetch and cache tours for this destination
+      await searchTours({
+        destination: dest.name,
+        destinationId: dest.id.toString(),
+        resultCount: 100, // Cache a good amount for browsing
+        sortBy: 'popular'
+      });
+
+      successCount++;
+      logger.info(`Warmed cache for ${dest.name} (${successCount}/${POPULAR_DESTINATIONS.length})`);
+
+      // Small delay to be nice to the API
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+    } catch (error) {
+      failCount++;
+      logger.warn(`Failed to warm cache for ${dest.name}: ${error.message}`);
+    }
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  logger.info(`Cache warming complete: ${successCount} succeeded, ${failCount} failed in ${elapsed}s`);
+
+  return { successCount, failCount, elapsed };
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
