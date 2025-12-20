@@ -883,31 +883,23 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
   logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
 
-  let allProducts = [];
-  let currentStart = 1;
-  let totalCount = 0;
-  let hasMore = true;
+  const PARALLEL_BATCH_SIZE = 10; // Fetch 10 pages at once (500 tours per batch)
 
-  // Fetch pages until we have enough results (not ALL results)
-  while (hasMore && allProducts.length < MAX_RESULTS) {
-    const searchBody = {
-      filtering: {
-        destination: destInfo.id
-      },
+  // Helper to build search request body
+  const buildSearchBody = (startIndex) => {
+    const body = {
+      filtering: { destination: destInfo.id },
       sorting: viatorSort,
-      pagination: {
-        start: currentStart,
-        count: PAGE_SIZE
-      },
+      pagination: { start: startIndex, count: PAGE_SIZE },
       currency: 'USD'
     };
+    if (tags.length > 0) body.filtering.tags = tags;
+    applyFilters(body.filtering, filterOptions);
+    return body;
+  };
 
-    if (tags.length > 0) {
-      searchBody.filtering.tags = tags;
-    }
-
-    applyFilters(searchBody.filtering, filterOptions);
-
+  // Helper to fetch a single page
+  const fetchPage = async (startIndex) => {
     const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
       method: 'POST',
       headers: {
@@ -916,57 +908,75 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
         'Accept-Language': 'en-US',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(searchBody)
+      body: JSON.stringify(buildSearchBody(startIndex))
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(`Viator search error (page ${Math.ceil(currentStart / PAGE_SIZE)}): ${response.status} - ${errorText}`);
-      break;
+      logger.error(`Viator search error (start=${startIndex}): ${response.status} - ${errorText}`);
+      return { products: [], totalCount: 0 };
     }
 
     const data = await response.json();
-    const pageProducts = data.products || [];
-    totalCount = data.totalCount || 0;
+    return { products: data.products || [], totalCount: data.totalCount || 0 };
+  };
 
-    allProducts.push(...pageProducts); // Use push instead of spread for better performance
+  // STEP 1: Fetch first page to get totalCount
+  const startTime = Date.now();
+  const firstPage = await fetchPage(1);
+  let allProducts = firstPage.products;
+  const totalCount = firstPage.totalCount;
 
-    const pageNum = Math.ceil(currentStart / PAGE_SIZE);
-    logger.info(`Page ${pageNum}: fetched ${pageProducts.length} tours (total so far: ${allProducts.length}/${totalCount})`);
+  logger.info(`Page 1: fetched ${allProducts.length} tours (total available: ${totalCount})`);
 
-    // Check if there are more results AND we need more
-    hasMore = pageProducts.length === PAGE_SIZE && allProducts.length < MAX_RESULTS && allProducts.length < totalCount;
-    currentStart += PAGE_SIZE;
+  // STEP 2: Calculate how many more pages we need
+  const targetCount = Math.min(MAX_RESULTS, totalCount);
+  const totalPages = Math.ceil(targetCount / PAGE_SIZE);
+
+  if (totalPages > 1) {
+    // STEP 3: Fetch remaining pages in parallel batches
+    const remainingPageStarts = [];
+    for (let page = 2; page <= totalPages; page++) {
+      remainingPageStarts.push((page - 1) * PAGE_SIZE + 1);
+    }
+
+    // Process in batches to avoid overwhelming the API
+    for (let i = 0; i < remainingPageStarts.length; i += PARALLEL_BATCH_SIZE) {
+      const batch = remainingPageStarts.slice(i, i + PARALLEL_BATCH_SIZE);
+      const batchResults = await Promise.all(batch.map(start => fetchPage(start)));
+
+      for (const result of batchResults) {
+        allProducts.push(...result.products);
+      }
+
+      const batchNum = Math.floor(i / PARALLEL_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(remainingPageStarts.length / PARALLEL_BATCH_SIZE);
+      logger.info(`Batch ${batchNum}/${totalBatches}: fetched ${batch.length * PAGE_SIZE} tours (total so far: ${allProducts.length})`);
+    }
   }
 
-  logger.info(`Fetched ${allProducts.length} tours for ${destination} (API total: ${totalCount}, limit: ${MAX_RESULTS})`);
+  const elapsed = Date.now() - startTime;
+  logger.info(`Fetched ${allProducts.length} tours for ${destination} in ${elapsed}ms (API total: ${totalCount}, parallel batches used)`);
 
-  // If tag filtering returned 0 results, try a single page without tags
+  // If tag filtering returned 0 results, retry without tags using parallel fetch
   if (allProducts.length === 0 && tags.length > 0) {
     logger.info(`No results with tags, retrying without tag filter`);
 
-    const retryBody = {
-      filtering: {
-        destination: destInfo.id
-      },
-      sorting: viatorSort,
-      pagination: {
-        start: 1,
-        count: Math.min(PAGE_SIZE, MAX_RESULTS) // Only fetch what we need
-      },
-      currency: 'USD'
+    // Build retry search body (no tags)
+    const buildRetryBody = (startIndex) => {
+      const body = {
+        filtering: { destination: destInfo.id },
+        sorting: viatorSort,
+        pagination: { start: startIndex, count: PAGE_SIZE },
+        currency: 'USD'
+      };
+      applyFilters(body.filtering, filterOptions);
+      return body;
     };
 
-    applyFilters(retryBody.filtering, filterOptions);
-
-    // PERFORMANCE FIX: Only fetch pages until we have enough, not ALL pages
-    let retryStart = 1;
-    let retryHasMore = true;
-
-    while (retryHasMore && allProducts.length < MAX_RESULTS) {
-      retryBody.pagination.start = retryStart;
-
-      const retryResponse = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
+    // Fetch retry page helper
+    const fetchRetryPage = async (startIndex) => {
+      const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
         method: 'POST',
         headers: {
           'exp-api-key': API_KEY,
@@ -974,23 +984,34 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
           'Accept-Language': 'en-US',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(retryBody)
+        body: JSON.stringify(buildRetryBody(startIndex))
       });
 
-      if (retryResponse.ok) {
-        const retryData = await retryResponse.json();
-        const retryProducts = retryData.products || [];
-        totalCount = retryData.totalCount || 0;
+      if (!response.ok) return { products: [], totalCount: 0 };
+      const data = await response.json();
+      return { products: data.products || [], totalCount: data.totalCount || 0 };
+    };
 
-        allProducts.push(...retryProducts); // Use push instead of spread for better performance
-        retryHasMore = retryProducts.length === PAGE_SIZE && allProducts.length < MAX_RESULTS;
-        retryStart += PAGE_SIZE;
-      } else {
-        break;
+    // Fetch first page to get count
+    const retryFirst = await fetchRetryPage(1);
+    allProducts = retryFirst.products;
+    const retryTotal = retryFirst.totalCount;
+    const retryPages = Math.ceil(Math.min(MAX_RESULTS, retryTotal) / PAGE_SIZE);
+
+    if (retryPages > 1) {
+      const retryStarts = [];
+      for (let p = 2; p <= retryPages; p++) {
+        retryStarts.push((p - 1) * PAGE_SIZE + 1);
+      }
+
+      for (let i = 0; i < retryStarts.length; i += PARALLEL_BATCH_SIZE) {
+        const batch = retryStarts.slice(i, i + PARALLEL_BATCH_SIZE);
+        const results = await Promise.all(batch.map(s => fetchRetryPage(s)));
+        for (const r of results) allProducts.push(...r.products);
       }
     }
 
-    logger.info(`Retry without tags found ${allProducts.length} tours`);
+    logger.info(`Retry without tags found ${allProducts.length} tours (parallel fetch)`);
   }
 
   let products = allProducts;
