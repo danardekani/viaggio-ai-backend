@@ -1240,11 +1240,70 @@ function formatTourResult(product) {
   }).filter(Boolean) || [];
   
   // Extract itinerary/highlights
-  const itinerary = product.itinerary?.itineraryItems?.map(item => ({
-    name: extractString(item.pointOfInterestLocation?.location?.name || item.description),
-    description: extractString(item.description),
-    duration: item.duration?.fixedDurationInMinutes
-  })) || [];
+  // POI name can be in multiple places depending on the Viator response structure
+  const itinerary = product.itinerary?.itineraryItems?.map(item => {
+    // Try multiple locations for the POI name
+    const poiLocation = item.pointOfInterestLocation?.location;
+
+    // Name could be a string or a localized object
+    let poiName = null;
+    if (poiLocation?.name) {
+      poiName = typeof poiLocation.name === 'string'
+        ? poiLocation.name
+        : poiLocation.name?.en || poiLocation.name?.content || Object.values(poiLocation.name)[0];
+    }
+
+    // Fallback to ref which sometimes contains the name
+    if (!poiName && poiLocation?.ref) {
+      poiName = poiLocation.ref;
+    }
+
+    // Check for attraction name directly on the location
+    if (!poiName && poiLocation?.attractionName) {
+      poiName = poiLocation.attractionName;
+    }
+
+    // Check for POI object directly on the item
+    if (!poiName && item.poi?.name) {
+      poiName = extractString(item.poi.name);
+    }
+
+    // Check for name directly on the item
+    if (!poiName && item.name) {
+      poiName = extractString(item.name);
+    }
+
+    // The description typically contains what you do there (e.g., "Pass By", "Stop At")
+    const stopType = extractString(item.description) || '';
+
+    // If we still don't have a POI name, and the description is just a stop type, skip it
+    // or use the full description if it has useful info
+    if (!poiName) {
+      const genericDescriptions = ['pass by', 'stop at', 'admission ticket', 'photo stop'];
+      const descLower = stopType.toLowerCase();
+      if (genericDescriptions.some(gd => descLower === gd || descLower.startsWith(gd + ':'))) {
+        // Try to extract name after the colon if present
+        if (stopType.includes(':')) {
+          poiName = stopType.split(':').slice(1).join(':').trim();
+        }
+      }
+      // Last resort: use the description if it's more than just "Pass By"
+      if (!poiName && stopType.length > 20) {
+        poiName = stopType;
+      }
+    }
+
+    // Skip items without meaningful names
+    if (!poiName || poiName.toLowerCase() === 'pass by' || poiName.toLowerCase() === 'stop at') {
+      return null;
+    }
+
+    return {
+      name: extractString(poiName),
+      description: stopType || 'Visit',
+      duration: item.duration?.fixedDurationInMinutes
+    };
+  }).filter(Boolean) || [];
 
   // Additional info - ensure all items are strings
   const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
