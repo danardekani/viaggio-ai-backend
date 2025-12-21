@@ -404,6 +404,83 @@ async function findDestination(destinationName) {
 }
 
 // ============================================================================
+// CONTENT API - HOTEL DETAILS WITH IMAGES
+// ============================================================================
+
+/**
+ * Fetch hotel details including images from Content API
+ * Uses batch endpoint: /hotels/{hotelCodes}/details
+ * @param {number[]} hotelCodes - Array of hotel codes (max ~200 per request)
+ * @returns {Map<number, object>} Map of hotelCode -> hotel details with images
+ */
+async function fetchHotelDetails(hotelCodes) {
+  if (!hotelCodes || hotelCodes.length === 0) {
+    return new Map();
+  }
+
+  // Batch into groups of 100 to avoid URL length limits
+  const BATCH_SIZE = 100;
+  const batches = [];
+  for (let i = 0; i < hotelCodes.length; i += BATCH_SIZE) {
+    batches.push(hotelCodes.slice(i, i + BATCH_SIZE));
+  }
+
+  const hotelDetailsMap = new Map();
+
+  for (const batch of batches) {
+    const codesParam = batch.join(',');
+
+    try {
+      const response = await fetch(
+        `${CONTENT_API_BASE}/hotels/${codesParam}/details?language=ENG`,
+        {
+          method: 'GET',
+          headers: getHeaders()
+        }
+      );
+
+      if (!response.ok) {
+        logger.warn(`Content API hotel details error: ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const hotels = data.hotels || [];
+
+      for (const hotel of hotels) {
+        hotelDetailsMap.set(parseInt(hotel.code), hotel);
+      }
+
+      logger.info(`Fetched details for ${hotels.length} hotels from Content API`);
+
+    } catch (error) {
+      logger.warn(`Failed to fetch hotel details: ${error.message}`);
+    }
+  }
+
+  return hotelDetailsMap;
+}
+
+/**
+ * Extract image URLs from Content API hotel response
+ * @param {object} hotelDetails - Hotel object from Content API
+ * @returns {string[]} Array of full image URLs
+ */
+function extractImageUrls(hotelDetails) {
+  if (!hotelDetails?.images || hotelDetails.images.length === 0) {
+    return [];
+  }
+
+  // Sort by order/visualOrder and take best images
+  const sortedImages = [...hotelDetails.images]
+    .sort((a, b) => (a.order || a.visualOrder || 0) - (b.order || b.visualOrder || 0))
+    .slice(0, 10); // Take up to 10 images
+
+  // Build full URLs: https://photos.hotelbeds.com/giata/{path}
+  return sortedImages.map(img => `https://photos.hotelbeds.com/giata/${img.path}`);
+}
+
+// ============================================================================
 // CONTENT API - HOTELS BY DESTINATION
 // ============================================================================
 
@@ -561,10 +638,17 @@ export async function searchHotels({
 
     logger.info(`Received ${hotels.length} hotels with availability near ${destInfo.name}`);
 
-    // Format and return results
-    const formattedHotels = hotels
-      .slice(0, resultCount)
-      .map(hotel => formatHotelResult(hotel, checkIn, checkOut));
+    // Limit to requested count
+    const limitedHotels = hotels.slice(0, resultCount);
+
+    // STEP 4: Fetch hotel details with images from Content API
+    const hotelCodes = limitedHotels.map(h => parseInt(h.code));
+    const hotelDetailsMap = await fetchHotelDetails(hotelCodes);
+
+    // Format and return results with Content API images
+    const formattedHotels = limitedHotels.map(hotel =>
+      formatHotelResult(hotel, checkIn, checkOut, hotelDetailsMap.get(parseInt(hotel.code)))
+    );
 
     return formattedHotels;
 
@@ -649,7 +733,7 @@ function buildImageUrls(hotelCode, count = 5) {
   return images;
 }
 
-function formatHotelResult(hotel, checkIn, checkOut) {
+function formatHotelResult(hotel, checkIn, checkOut, contentDetails = null) {
   // Get the best rate (cheapest)
   const rate = hotel.rooms?.[0]?.rates?.[0];
   const nights = calculateNights(checkIn, checkOut);
@@ -658,28 +742,48 @@ function formatHotelResult(hotel, checkIn, checkOut) {
   const totalPrice = parseFloat(rate?.net || 0);
   const pricePerNight = nights > 0 ? (totalPrice / nights).toFixed(2) : totalPrice;
 
-  // Build image URLs using correct GIATA format
   const hotelCode = hotel.code;
-  const images = buildImageUrls(hotelCode, 5);
 
-  // Extract amenities from room info if available
+  // Get images from Content API if available, otherwise use fallback
+  let images = [];
+  if (contentDetails) {
+    images = extractImageUrls(contentDetails);
+  }
+  // Fallback to constructed URLs if Content API didn't return images
+  if (images.length === 0) {
+    images = buildImageUrls(hotelCode, 5);
+  }
+
+  // Extract amenities from Content API facilities or room info
   const amenities = [];
-  if (rate?.boardName) amenities.push(rate.boardName);
+  if (contentDetails?.facilities) {
+    const facilityNames = contentDetails.facilities
+      .slice(0, 8)
+      .map(f => f.description?.content || f.facilityCode)
+      .filter(Boolean);
+    amenities.push(...facilityNames);
+  }
+  if (rate?.boardName && !amenities.includes(rate.boardName)) {
+    amenities.push(rate.boardName);
+  }
   if (rate?.paymentType === 'AT_HOTEL') amenities.push('Pay at Hotel');
   if (rate?.paymentType === 'AT_WEB') amenities.push('Pay Online');
-  if (hotel.categoryCode >= 4) amenities.push('Premium Property');
 
   // Get review score from rate key if available (some rates include it)
   const reviewScore = hotel.reviews?.[0]?.rate || null;
 
+  // Get description and address from Content API
+  const description = contentDetails?.description?.content || '';
+  const address = contentDetails?.address?.content || hotel.address || formatLocation(hotel);
+
   return {
     id: hotelCode,
     name: hotel.name,
-    description: '', // Available in Content API if needed
+    description,
     category: hotel.categoryName || `${hotel.categoryCode} Star`,
     stars: parseInt(hotel.categoryCode) || 0,
     location: formatLocation(hotel),
-    address: hotel.address || formatLocation(hotel),
+    address,
 
     // Pricing
     totalPrice: totalPrice.toFixed(2),
