@@ -516,23 +516,32 @@ export async function searchHotels({
     });
   }
 
-  // STEP 3: Search using geolocation (latitude/longitude with radius)
-  // This is the correct approach per HotelBeds API documentation
+  // STEP 3: Build search request
+  // Try destination code first (faster), fall back to geolocation if available
   const requestBody = {
     stay: {
       checkIn,
       checkOut
     },
-    occupancies,
-    geolocation: {
-      latitude: destInfo.lat,
-      longitude: destInfo.lng,
-      radius: 30,  // 30km radius to capture city and surrounding area
-      unit: 'km'
-    }
+    occupancies
   };
 
-  logger.info(`Searching hotels near ${destInfo.name} (${destInfo.lat}, ${destInfo.lng}, radius: 30km)...`);
+  // Use destination code if available (per OpenAPI spec: destination.code is valid)
+  if (destInfo.code) {
+    requestBody.destination = { code: destInfo.code };
+    logger.info(`Searching hotels in destination ${destInfo.code} (${destInfo.name})...`);
+  } else if (destInfo.lat && destInfo.lng) {
+    // Fall back to geolocation search
+    requestBody.geolocation = {
+      latitude: destInfo.lat,
+      longitude: destInfo.lng,
+      radius: 30,
+      unit: 'km'
+    };
+    logger.info(`Searching hotels near ${destInfo.name} (${destInfo.lat}, ${destInfo.lng}, radius: 30km)...`);
+  } else {
+    throw new Error(`No valid search criteria for destination: ${destInfo.name || destination}`);
+  }
 
   try {
     const response = await fetch(`${BOOKING_API_BASE}/hotels`, {
