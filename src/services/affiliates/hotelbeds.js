@@ -38,26 +38,26 @@ const DESTINATIONS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
 // ============================================================================
 
 const POPULAR_DESTINATIONS = [
-  // United States
-  { code: 'NYC', name: 'New York', countryCode: 'US' },
-  { code: 'LAX', name: 'Los Angeles', countryCode: 'US' },
-  { code: 'CHI', name: 'Chicago', countryCode: 'US' },
-  { code: 'MIA', name: 'Miami', countryCode: 'US' },
-  { code: 'SFO', name: 'San Francisco', countryCode: 'US' },
-  { code: 'LAS', name: 'Las Vegas', countryCode: 'US' },
-  { code: 'ORL', name: 'Orlando', countryCode: 'US' },
-  { code: 'BOS', name: 'Boston', countryCode: 'US' },
-  { code: 'WAS', name: 'Washington D.C.', countryCode: 'US' },
-  { code: 'SEA', name: 'Seattle', countryCode: 'US' },
-  { code: 'DEN', name: 'Denver', countryCode: 'US' },
-  { code: 'ATL', name: 'Atlanta', countryCode: 'US' },
-  { code: 'PHX', name: 'Phoenix', countryCode: 'US' },
-  { code: 'SAN', name: 'San Diego', countryCode: 'US' },
-  { code: 'AUS', name: 'Austin', countryCode: 'US' },
-  { code: 'NAS', name: 'Nashville', countryCode: 'US' },
-  { code: 'NOL', name: 'New Orleans', countryCode: 'US' },
-  { code: 'PHL', name: 'Philadelphia', countryCode: 'US' },
-  { code: 'HNL', name: 'Honolulu', countryCode: 'US' },
+  // United States (with state codes for proper display)
+  { code: 'NYC', name: 'New York City', stateCode: 'NY', countryCode: 'US' },
+  { code: 'LAX', name: 'Los Angeles', stateCode: 'CA', countryCode: 'US' },
+  { code: 'CHI', name: 'Chicago', stateCode: 'IL', countryCode: 'US' },
+  { code: 'MIA', name: 'Miami', stateCode: 'FL', countryCode: 'US' },
+  { code: 'SFO', name: 'San Francisco', stateCode: 'CA', countryCode: 'US' },
+  { code: 'LAS', name: 'Las Vegas', stateCode: 'NV', countryCode: 'US' },
+  { code: 'ORL', name: 'Orlando', stateCode: 'FL', countryCode: 'US' },
+  { code: 'BOS', name: 'Boston', stateCode: 'MA', countryCode: 'US' },
+  { code: 'WAS', name: 'Washington', stateCode: 'DC', countryCode: 'US' },
+  { code: 'SEA', name: 'Seattle', stateCode: 'WA', countryCode: 'US' },
+  { code: 'DEN', name: 'Denver', stateCode: 'CO', countryCode: 'US' },
+  { code: 'ATL', name: 'Atlanta', stateCode: 'GA', countryCode: 'US' },
+  { code: 'PHX', name: 'Phoenix', stateCode: 'AZ', countryCode: 'US' },
+  { code: 'SAN', name: 'San Diego', stateCode: 'CA', countryCode: 'US' },
+  { code: 'AUS', name: 'Austin', stateCode: 'TX', countryCode: 'US' },
+  { code: 'NAS', name: 'Nashville', stateCode: 'TN', countryCode: 'US' },
+  { code: 'NOL', name: 'New Orleans', stateCode: 'LA', countryCode: 'US' },
+  { code: 'PHL', name: 'Philadelphia', stateCode: 'PA', countryCode: 'US' },
+  { code: 'HNL', name: 'Honolulu', stateCode: 'HI', countryCode: 'US' },
   // Europe - Spain
   { code: 'BCN', name: 'Barcelona', countryCode: 'ES' },
   { code: 'MAD', name: 'Madrid', countryCode: 'ES' },
@@ -142,6 +142,76 @@ const POPULAR_DESTINATIONS = [
   { code: 'CMN', name: 'Casablanca', countryCode: 'MA' },
   { code: 'RAK', name: 'Marrakech', countryCode: 'MA' },
 ];
+
+// ============================================================================
+// COUNTRY CODE TO NAME MAPPING
+// ============================================================================
+
+const COUNTRY_NAMES = {
+  'US': 'United States',
+  'ES': 'Spain',
+  'PT': 'Portugal',
+  'GB': 'United Kingdom',
+  'IE': 'Ireland',
+  'FR': 'France',
+  'IT': 'Italy',
+  'DE': 'Germany',
+  'AT': 'Austria',
+  'NL': 'Netherlands',
+  'CZ': 'Czech Republic',
+  'HU': 'Hungary',
+  'GR': 'Greece',
+  'TR': 'Turkey',
+  'CH': 'Switzerland',
+  'BE': 'Belgium',
+  'DK': 'Denmark',
+  'NO': 'Norway',
+  'SE': 'Sweden',
+  'FI': 'Finland',
+  'PL': 'Poland',
+  'JP': 'Japan',
+  'SG': 'Singapore',
+  'TH': 'Thailand',
+  'HK': 'Hong Kong',
+  'KR': 'South Korea',
+  'CN': 'China',
+  'IN': 'India',
+  'MY': 'Malaysia',
+  'VN': 'Vietnam',
+  'ID': 'Indonesia',
+  'AU': 'Australia',
+  'NZ': 'New Zealand',
+  'MX': 'Mexico',
+  'BR': 'Brazil',
+  'AR': 'Argentina',
+  'PE': 'Peru',
+  'CO': 'Colombia',
+  'CL': 'Chile',
+  'AE': 'United Arab Emirates',
+  'QA': 'Qatar',
+  'IL': 'Israel',
+  'EG': 'Egypt',
+  'ZA': 'South Africa',
+  'MA': 'Morocco'
+};
+
+/**
+ * Build a display name matching Viator's format: "City, State, Country" or "City, Country"
+ */
+function buildDisplayName(destination) {
+  const name = getDestinationName(destination);
+  const stateCode = destination.stateCode;
+  const countryCode = destination.countryCode;
+  const countryName = COUNTRY_NAMES[countryCode] || countryCode;
+
+  // For US destinations: "Orlando, FL, United States"
+  if (countryCode === 'US' && stateCode) {
+    return `${name}, ${stateCode}, ${countryName}`;
+  }
+
+  // For other destinations: "Paris, France"
+  return countryName ? `${name}, ${countryName}` : name;
+}
 
 // ============================================================================
 // AUTHENTICATION
@@ -393,14 +463,12 @@ async function getHotelsByDestination(destinationCode, limit = 100) {
 // ============================================================================
 
 /**
- * Search for hotel availability
- * Two-step process:
- *   1. Get hotel codes from Content API
- *   2. Check availability with Booking API
+ * Search for hotel availability using destination-based search
+ * Uses the Booking API's destination filter for accurate results
  */
 export async function searchHotels({
   destination,
-  destinationCode = null,  // NEW: If provided, skip destination lookup
+  destinationCode = null,  // If provided, skip destination lookup
   checkIn,
   checkOut,
   adults = 2,
@@ -409,45 +477,31 @@ export async function searchHotels({
   currency = 'USD',
   resultCount = 20
 }) {
-  
+
   logger.info(`Hotel search: ${destination}, ${checkIn} to ${checkOut}, ${adults} adults, ${rooms} rooms`);
 
   // STEP 1: Find the destination (or use provided code)
   let destCode = destinationCode;
-  
+  let destInfo = null;
+
   if (!destCode) {
-    const dest = await findDestination(destination);
-    
-    if (!dest) {
+    destInfo = await findDestination(destination);
+
+    if (!destInfo) {
       throw new Error(`Destination not found: ${destination}`);
     }
-    
-    destCode = dest.code;
+
+    destCode = destInfo.code;
     logger.info(`Resolved destination: "${destination}" → ${destCode}`);
   } else {
     logger.info(`Using provided destination code: ${destCode}`);
   }
 
-  // STEP 2: Get hotel codes for this destination (Content API)
-  const destinationHotels = await getHotelsByDestination(destCode, 150);
-  
-  if (destinationHotels.length === 0) {
-    logger.info(`No hotels found in destination: ${destCode}`);
-    return [];
-  }
-
-  // Extract hotel codes (limit to prevent huge requests)
-  const hotelCodes = destinationHotels
-    .slice(0, Math.min(100, resultCount * 5)) // Get more than needed for filtering
-    .map(h => parseInt(h.code));
-
-  logger.info(`Checking availability for ${hotelCodes.length} hotels...`);
-
-  // STEP 3: Build occupancy structure for Booking API
+  // STEP 2: Build occupancy structure for Booking API
   const occupancies = [];
-  const adultsPerRoom = Math.floor(adults / rooms);
+  const adultsPerRoom = Math.max(1, Math.floor(adults / rooms));
   const childrenPerRoom = children > 0 ? Math.floor(children / rooms) : 0;
-  
+
   for (let i = 0; i < rooms; i++) {
     occupancies.push({
       rooms: 1,
@@ -456,17 +510,20 @@ export async function searchHotels({
     });
   }
 
-  // STEP 4: Check availability using Booking API
+  // STEP 3: Search using destination code directly in Booking API
+  // This is more reliable than the two-step Content API → Booking API approach
   const requestBody = {
     stay: {
       checkIn,
       checkOut
     },
     occupancies,
-    hotels: {
-      hotel: hotelCodes  // Array of hotel codes (not destination!)
+    destination: {
+      code: destCode  // Search by destination code directly
     }
   };
+
+  logger.info(`Searching hotels in destination ${destCode}...`);
 
   try {
     const response = await fetch(`${BOOKING_API_BASE}/hotels`, {
@@ -483,13 +540,13 @@ export async function searchHotels({
 
     const data = await response.json();
     const hotels = data.hotels?.hotels || [];
-    
-    logger.info(`Received ${hotels.length} hotels with availability`);
+
+    logger.info(`Received ${hotels.length} hotels with availability in ${destCode}`);
 
     // Format and return results
     const formattedHotels = hotels
-      .map(hotel => formatHotelResult(hotel, checkIn, checkOut, destinationHotels))
-      .slice(0, resultCount);
+      .slice(0, resultCount)
+      .map(hotel => formatHotelResult(hotel, checkIn, checkOut));
 
     return formattedHotels;
 
@@ -556,68 +613,72 @@ export async function getHotelDetails(hotelCode, checkIn, checkOut, adults = 2) 
 // FORMAT HOTEL RESULT
 // ============================================================================
 
-function formatHotelResult(hotel, checkIn, checkOut, contentHotels = []) {
-  // Try to find additional info from content API
-  const contentInfo = contentHotels.find(h => h.code === hotel.code?.toString());
-  
+function formatHotelResult(hotel, checkIn, checkOut) {
   // Get the best rate (cheapest)
   const rate = hotel.rooms?.[0]?.rates?.[0];
   const nights = calculateNights(checkIn, checkOut);
-  
+
   // Calculate per-night price
   const totalPrice = parseFloat(rate?.net || 0);
   const pricePerNight = nights > 0 ? (totalPrice / nights).toFixed(2) : totalPrice;
 
-  // Get hotel images
-  let images = [];
-  if (contentInfo?.images) {
-    images = contentInfo.images
-      .filter(img => img.imageTypeCode === 'GEN' || img.imageTypeCode === 'HAB')
-      .slice(0, 5)
-      .map(img => `https://photos.hotelbeds.com/giata/${img.path}`);
-  }
+  // Build image URL using HotelBeds GIATA image service
+  // Format: https://photos.hotelbeds.com/giata/bigger/{hotelCode}/{imageNumber}.jpg
+  const hotelCode = hotel.code;
+  const images = [
+    `https://photos.hotelbeds.com/giata/bigger/${hotelCode}/00.jpg`,
+    `https://photos.hotelbeds.com/giata/bigger/${hotelCode}/01.jpg`,
+    `https://photos.hotelbeds.com/giata/bigger/${hotelCode}/02.jpg`,
+    `https://photos.hotelbeds.com/giata/bigger/${hotelCode}/03.jpg`,
+    `https://photos.hotelbeds.com/giata/bigger/${hotelCode}/04.jpg`
+  ];
 
-  // Get amenities/facilities
-  let amenities = [];
-  if (contentInfo?.facilities) {
-    amenities = contentInfo.facilities
-      .slice(0, 10)
-      .map(f => f.description?.content || f.facilityCode);
-  }
+  // Extract amenities from room info if available
+  const amenities = [];
+  if (rate?.boardName) amenities.push(rate.boardName);
+  if (rate?.paymentType === 'AT_HOTEL') amenities.push('Pay at Hotel');
+  if (rate?.paymentType === 'AT_WEB') amenities.push('Pay Online');
+  if (hotel.categoryCode >= 4) amenities.push('Premium Property');
+
+  // Get review score from rate key if available (some rates include it)
+  const reviewScore = hotel.reviews?.[0]?.rate || null;
 
   return {
-    id: hotel.code,
+    id: hotelCode,
     name: hotel.name,
-    description: contentInfo?.description?.content || '',
+    description: '', // Available in Content API if needed
     category: hotel.categoryName || `${hotel.categoryCode} Star`,
     stars: parseInt(hotel.categoryCode) || 0,
     location: formatLocation(hotel),
-    address: contentInfo?.address?.content || '',
-    
+    address: hotel.address || formatLocation(hotel),
+
     // Pricing
     totalPrice: totalPrice.toFixed(2),
     pricePerNight,
     currency: hotel.currency || 'USD',
     nights,
-    
-    // Images
-    image: images[0] || null,
+
+    // Images - using GIATA image service
+    image: images[0],
     images,
-    
+
     // Amenities
     amenities,
-    
+
     // Room info
     roomType: hotel.rooms?.[0]?.name || 'Standard Room',
     boardType: rate?.boardName || 'Room Only',
-    
+
+    // Review score
+    reviewScore,
+
     // Availability
     allotment: rate?.allotment, // Available rooms
     paymentType: rate?.paymentType, // AT_WEB, AT_HOTEL, etc.
     checkIn,
     checkOut,
     cancellationPolicies: rate?.cancellationPolicies || [],
-    
+
     // Links
     bookingLink: buildBookingLink(hotel.code, checkIn, checkOut)
   };
@@ -677,7 +738,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         const name = getDestinationName(d);
         const nameLower = name.toLowerCase();
         let score = 0;
-        
+
         // Score based on best matching search term
         for (const term of searchTerms) {
           if (nameLower === term) {
@@ -688,10 +749,11 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
             score = Math.max(score, 50);
           }
         }
-        
-        return { 
+
+        return {
           code: d.code,  // Always pass the code - both API and fallback codes work!
           name: name,
+          stateCode: d.stateCode,  // Preserve state code for US destinations
           countryCode: d.countryCode,
           score
         };
@@ -742,8 +804,9 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   return sorted.map(d => ({
     code: d.code,
     name: d.name,
+    stateCode: d.stateCode,
     countryCode: d.countryCode,
-    displayName: d.countryCode ? `${d.name}, ${d.countryCode}` : d.name
+    displayName: buildDisplayName(d)
   }));
 }
 
@@ -772,12 +835,13 @@ function searchFallbackDestinations(searchTerm, limit = 8) {
     .slice(0, limit);
 
   logger.info(`Fallback search found ${scored.length} destinations for "${searchTerm}"`);
-  
+
   return scored.map(d => ({
     code: d.code,
     name: getDestinationName(d),
+    stateCode: d.stateCode,
     countryCode: d.countryCode,
-    displayName: `${getDestinationName(d)}, ${d.countryCode}`
+    displayName: buildDisplayName(d)
   }));
 }
 
@@ -787,26 +851,22 @@ function searchFallbackDestinations(searchTerm, limit = 8) {
 export async function getDestinations() {
   try {
     const destinations = await fetchDestinations();
-    return destinations.map(d => {
-      const name = getDestinationName(d);
-      return {
-        code: d.code,
-        name: name,
-        countryCode: d.countryCode,
-        displayName: d.countryCode ? `${name}, ${d.countryCode}` : name
-      };
-    });
+    return destinations.map(d => ({
+      code: d.code,
+      name: getDestinationName(d),
+      stateCode: d.stateCode,
+      countryCode: d.countryCode,
+      displayName: buildDisplayName(d)
+    }));
   } catch (error) {
     logger.warn(`Failed to get destinations, using fallback: ${error.message}`);
-    return POPULAR_DESTINATIONS.map(d => {
-      const name = getDestinationName(d);
-      return {
-        code: d.code,
-        name: name,
-        countryCode: d.countryCode,
-        displayName: `${name}, ${d.countryCode}`
-      };
-    });
+    return POPULAR_DESTINATIONS.map(d => ({
+      code: d.code,
+      name: getDestinationName(d),
+      stateCode: d.stateCode,
+      countryCode: d.countryCode,
+      displayName: buildDisplayName(d)
+    }));
   }
 }
 
