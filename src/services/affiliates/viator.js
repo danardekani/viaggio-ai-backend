@@ -1495,20 +1495,25 @@ function formatTourResult(product) {
   // Extract itinerary/highlights
   // POI name can be in multiple places depending on the Viator response structure
   const itinerary = product.itinerary?.itineraryItems?.map(item => {
-    // Try multiple locations for the POI name
     const poiLocation = item.pointOfInterestLocation?.location;
 
-    // Name could be a string or a localized object
     let poiName = null;
-    if (poiLocation?.name) {
+    
+    // FIRST: Check for resolved location name (from /locations/bulk API call)
+    if (item.resolvedLocation?.name) {
+      poiName = item.resolvedLocation.name;
+    }
+    // SECOND: Check pointOfInterestLocation.name (also set by enhancement)
+    else if (item.pointOfInterestLocation?.name) {
+      poiName = typeof item.pointOfInterestLocation.name === 'string'
+        ? item.pointOfInterestLocation.name
+        : item.pointOfInterestLocation.name?.en || Object.values(item.pointOfInterestLocation.name)[0];
+    }
+    // THIRD: Check the nested location.name
+    else if (poiLocation?.name) {
       poiName = typeof poiLocation.name === 'string'
         ? poiLocation.name
         : poiLocation.name?.en || poiLocation.name?.content || Object.values(poiLocation.name)[0];
-    }
-
-    // Fallback to ref which sometimes contains the name
-    if (!poiName && poiLocation?.ref) {
-      poiName = poiLocation.ref;
     }
 
     // Check for attraction name directly on the location
@@ -1529,25 +1534,22 @@ function formatTourResult(product) {
     // The description typically contains what you do there (e.g., "Pass By", "Stop At")
     const stopType = extractString(item.description) || '';
 
-    // If we still don't have a POI name, and the description is just a stop type, skip it
-    // or use the full description if it has useful info
+    // If we still don't have a POI name, try extracting from description
     if (!poiName) {
       const genericDescriptions = ['pass by', 'stop at', 'admission ticket', 'photo stop'];
       const descLower = stopType.toLowerCase();
       if (genericDescriptions.some(gd => descLower === gd || descLower.startsWith(gd + ':'))) {
-        // Try to extract name after the colon if present
         if (stopType.includes(':')) {
           poiName = stopType.split(':').slice(1).join(':').trim();
         }
       }
-      // Last resort: use the description if it's more than just "Pass By"
       if (!poiName && stopType.length > 20) {
         poiName = stopType;
       }
     }
 
-    // Skip items without meaningful names
-    if (!poiName || poiName.toLowerCase() === 'pass by' || poiName.toLowerCase() === 'stop at') {
+    // NEVER use LOC-xxx ref as a name - skip those items or use description
+    if (!poiName || poiName.startsWith('LOC-') || poiName.toLowerCase() === 'pass by' || poiName.toLowerCase() === 'stop at') {
       return null;
     }
 
