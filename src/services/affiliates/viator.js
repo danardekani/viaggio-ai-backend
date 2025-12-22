@@ -1065,7 +1065,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   logger.info(`Returning ${formattedResults.length} tours for ${destination}`);
   return formattedResults;
 }
-
+/**
  * Resolve location references (LOC-xxx) to actual location names
  * Uses Viator's /locations/bulk endpoint
  * @param {Array} locationRefs - Array of location reference strings (e.g., "LOC-5620ab70-c813-4904-ad13-bcf527540d3e")
