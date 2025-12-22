@@ -1066,6 +1066,232 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   return formattedResults;
 }
 
+ * Resolve location references (LOC-xxx) to actual location names
+ * Uses Viator's /locations/bulk endpoint
+ * @param {Array} locationRefs - Array of location reference strings (e.g., "LOC-5620ab70-c813-4904-ad13-bcf527540d3e")
+ * @returns {Object} Map of reference -> location data (including name)
+ */
+async function resolveLocationReferences(locationRefs) {
+  if (!locationRefs || locationRefs.length === 0) {
+    return {};
+  }
+
+  // Filter out invalid refs and deduplicate
+  const validRefs = [...new Set(
+    locationRefs.filter(ref => ref && typeof ref === 'string' && ref.startsWith('LOC-'))
+  )];
+
+  if (validRefs.length === 0) {
+    return {};
+  }
+
+  logger.info(`Resolving ${validRefs.length} location references`);
+
+  try {
+    const response = await fetchWithTimeout(`${VIATOR_API_BASE}/locations/bulk`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        locations: validRefs
+      })
+    });
+
+    if (!response.ok) {
+      logger.warn(`Failed to resolve locations: ${response.status}`);
+      return {};
+    }
+
+    const data = await response.json();
+    const locations = data.locations || [];
+
+    // Build a map of reference -> location data
+    const locationMap = {};
+    for (const loc of locations) {
+      if (loc.reference) {
+        locationMap[loc.reference] = {
+          name: loc.name || null,
+          address: loc.address || null,
+          center: loc.center || null,
+          provider: loc.provider || null,
+          providerReference: loc.providerReference || null
+        };
+      }
+    }
+
+    logger.info(`Resolved ${Object.keys(locationMap).length} of ${validRefs.length} locations`);
+    return locationMap;
+
+  } catch (error) {
+    logger.error('Error resolving location references:', error);
+    return {};
+  }
+}
+
+/**
+ * Extract all location references from an itinerary object
+ * Handles all 5 itinerary types: STANDARD, ACTIVITY, MULTI_DAY_TOUR, HOP_ON_HOP_OFF, UNSTRUCTURED
+ */
+function extractLocationRefs(itinerary) {
+  const refs = [];
+
+  if (!itinerary) return refs;
+
+  // STANDARD itinerary - itineraryItems[]
+  if (itinerary.itineraryItems) {
+    for (const item of itinerary.itineraryItems) {
+      const ref = item.pointOfInterestLocation?.location?.ref;
+      if (ref) refs.push(ref);
+    }
+  }
+
+  // ACTIVITY itinerary - activityInfo.location
+  if (itinerary.activityInfo?.location?.ref) {
+    refs.push(itinerary.activityInfo.location.ref);
+  }
+
+  // MULTI_DAY_TOUR - days[].items[]
+  if (itinerary.days) {
+    for (const day of itinerary.days) {
+      if (day.items) {
+        for (const item of day.items) {
+          const ref = item.pointOfInterestLocation?.location?.ref;
+          if (ref) refs.push(ref);
+        }
+      }
+    }
+  }
+
+  // HOP_ON_HOP_OFF - routes[].stops[] and routes[].pointsOfInterest[]
+  if (itinerary.routes) {
+    for (const route of itinerary.routes) {
+      // Stops
+      if (route.stops) {
+        for (const stop of route.stops) {
+          const ref = stop.stopLocation?.ref;
+          if (ref) refs.push(ref);
+        }
+      }
+      // Points of interest
+      if (route.pointsOfInterest) {
+        for (const poi of route.pointsOfInterest) {
+          const ref = poi.location?.ref;
+          if (ref) refs.push(ref);
+        }
+      }
+    }
+  }
+
+  // UNSTRUCTURED - pointOfInterestLocations[]
+  if (itinerary.pointOfInterestLocations) {
+    for (const poi of itinerary.pointOfInterestLocations) {
+      const ref = poi.location?.ref;
+      if (ref) refs.push(ref);
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Enhance itinerary with resolved location names
+ * Modifies the itinerary object in place to add resolved names
+ */
+function enhanceItineraryWithNames(itinerary, locationMap) {
+  if (!itinerary || Object.keys(locationMap).length === 0) return itinerary;
+
+  // Helper to get resolved name for a reference
+  const getResolvedName = (ref) => locationMap[ref]?.name || null;
+
+  // STANDARD itinerary - itineraryItems[]
+  if (itinerary.itineraryItems) {
+    itinerary.itineraryItems = itinerary.itineraryItems.map(item => {
+      const ref = item.pointOfInterestLocation?.location?.ref;
+      if (ref && locationMap[ref]) {
+        // Add resolved location data to the item
+        item.resolvedLocation = locationMap[ref];
+        // Also add name directly for easier access
+        if (!item.pointOfInterestLocation.name && locationMap[ref].name) {
+          item.pointOfInterestLocation.name = locationMap[ref].name;
+        }
+      }
+      return item;
+    });
+  }
+
+  // MULTI_DAY_TOUR - days[].items[]
+  if (itinerary.days) {
+    itinerary.days = itinerary.days.map(day => {
+      if (day.items) {
+        day.items = day.items.map(item => {
+          const ref = item.pointOfInterestLocation?.location?.ref;
+          if (ref && locationMap[ref]) {
+            item.resolvedLocation = locationMap[ref];
+            if (!item.pointOfInterestLocation.name && locationMap[ref].name) {
+              item.pointOfInterestLocation.name = locationMap[ref].name;
+            }
+          }
+          return item;
+        });
+      }
+      return day;
+    });
+  }
+
+  // HOP_ON_HOP_OFF - routes[].stops[] and routes[].pointsOfInterest[]
+  if (itinerary.routes) {
+    itinerary.routes = itinerary.routes.map(route => {
+      // Enhance stops
+      if (route.stops) {
+        route.stops = route.stops.map(stop => {
+          const ref = stop.stopLocation?.ref;
+          if (ref && locationMap[ref]) {
+            stop.resolvedLocation = locationMap[ref];
+            if (!stop.name && locationMap[ref].name) {
+              stop.name = locationMap[ref].name;
+            }
+          }
+          return stop;
+        });
+      }
+      // Enhance POIs
+      if (route.pointsOfInterest) {
+        route.pointsOfInterest = route.pointsOfInterest.map(poi => {
+          const ref = poi.location?.ref;
+          if (ref && locationMap[ref]) {
+            poi.resolvedLocation = locationMap[ref];
+            if (!poi.name && locationMap[ref].name) {
+              poi.name = locationMap[ref].name;
+            }
+          }
+          return poi;
+        });
+      }
+      return route;
+    });
+  }
+
+  // UNSTRUCTURED - pointOfInterestLocations[]
+  if (itinerary.pointOfInterestLocations) {
+    itinerary.pointOfInterestLocations = itinerary.pointOfInterestLocations.map(poi => {
+      const ref = poi.location?.ref;
+      if (ref && locationMap[ref]) {
+        poi.resolvedLocation = locationMap[ref];
+        if (!poi.name && locationMap[ref].name) {
+          poi.name = locationMap[ref].name;
+        }
+      }
+      return poi;
+    });
+  }
+
+  return itinerary;
+}
+
 // ============================================================================
 // GET TOUR DETAILS
 // ============================================================================
