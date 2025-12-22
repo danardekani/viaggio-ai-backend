@@ -1329,6 +1329,33 @@ export async function getTourDetails(productCode) {
     pricingSummary: product.pricing?.summary,
     hasPricingInfo: !!product.pricingInfo
   });
+
+  // =========================================================================
+  // RESOLVE LOCATION REFERENCES
+  // Viator returns LOC-xxx references that must be resolved via /locations/bulk
+  // =========================================================================
+  if (product.itinerary) {
+    try {
+      // Extract all location references from the itinerary
+      const locationRefs = extractLocationRefs(product.itinerary);
+      
+      if (locationRefs.length > 0) {
+        logger.info(`Found ${locationRefs.length} location references to resolve`);
+        
+        // Resolve references to actual names via Viator API
+        const locationMap = await resolveLocationReferences(locationRefs);
+        
+        // Enhance the itinerary with resolved names
+        if (Object.keys(locationMap).length > 0) {
+          enhanceItineraryWithNames(product.itinerary, locationMap);
+          logger.info(`Enhanced itinerary with ${Object.keys(locationMap).length} resolved locations`);
+        }
+      }
+    } catch (error) {
+      logger.warn(`Failed to resolve location references: ${error.message}`);
+      // Continue without resolved names - formatTourResult will use fallbacks
+    }
+  }
   
   return formatTourResult(product);
 }
