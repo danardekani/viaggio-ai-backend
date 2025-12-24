@@ -6,12 +6,6 @@
 // ============================================================================
 
 import { searchTours, searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
-import { 
-  searchActivities, 
-  searchActivitiesByHotel,
-  getActivityDetails,
-  findDestinationCode 
-} from '../../services/affiliates/hotelbeds-activities.js';
 import { identifyLocation } from '../../services/vision.js';
 
 // Simple logger (console-based)
@@ -32,15 +26,6 @@ export async function executeTool(toolName, toolInput) {
     switch (toolName) {
       case 'search_tours':
         return await executeSearchTours(toolInput);
-
-      case 'search_hotelbeds_activities':
-        return await executeSearchHotelbedsActivities(toolInput);
-
-      case 'get_hotelbeds_activity_details':
-        return await executeGetHotelbedsActivityDetails(toolInput);
-
-      case 'search_activities_near_hotel':
-        return await executeSearchActivitiesNearHotel(toolInput);
 
       case 'search_flights':
         return await executeSearchFlights(toolInput);
@@ -128,7 +113,7 @@ async function executeSearchTours(input) {
       maxPrice: max_price,
       minRating: min_rating,
       flags: flags.length > 0 ? flags : undefined,
-      resultCount: effectiveResultCount + 1
+      resultCount: effectiveResultCount + 1  // Request 1 extra to check hasMore
     });
 
     if (!tours || tours.length === 0) {
@@ -141,40 +126,36 @@ async function executeSearchTours(input) {
       };
     }
 
-    // Check if there are more results available
+    // Check if there are more results beyond what we're returning
     const hasMore = tours.length > effectiveResultCount;
-    const returnedTours = tours.slice(0, effectiveResultCount);
+    const toursToReturn = tours.slice(0, effectiveResultCount);
 
-    // Check if results are mostly transfers (indicates limited tour inventory)
-    const transferCount = returnedTours.filter(t => 
-      t.name?.toLowerCase().includes('transfer') || 
-      t.name?.toLowerCase().includes('airport')
-    ).length;
-    const mostlyTransfers = transferCount > returnedTours.length / 2;
+    // Check if results are mostly transfers (not actual tours)
+    const transferKeywords = ['transfer', 'chauffeur', 'airport', 'taxi', 'transportation', 'pickup', 'drop-off'];
+    const actualTours = toursToReturn.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      return !transferKeywords.some(kw => name.includes(kw));
+    });
+
+    const onlyTransfers = actualTours.length === 0 && toursToReturn.length > 0;
+    const mostlyTransfers = actualTours.length < toursToReturn.length / 2 && actualTours.length < 3;
+
+    logger.info(`Found ${tours.length} tours in ${searchDestination}, returning ${toursToReturn.length} (hasMore: ${hasMore})`);
 
     // Format for response
     return {
       success: true,
       destination: searchDestination,
-      destinationId: destinationId,
-      searchTerms: interests.join(' ') || null,
-      tours: returnedTours.map((tour, index) => ({
-        position: index + 1,
-        productCode: tour.productCode,
-        name: tour.name,
-        price: tour.price,
-        currency: tour.currency || 'USD',
-        duration: tour.duration,
-        rating: tour.rating,
-        reviewCount: tour.reviewCount,
-        image: tour.image,
-        description: tour.description,
-        bookingLink: tour.bookingLink,
-        flags: tour.flags || []
-      })),
-      hasMore,
-      totalReturned: returnedTours.length,
-      note: mostlyTransfers 
+      destinationId: destinationId,  // For "See more" navigation
+      tourCount: toursToReturn.length,
+      actualTourCount: actualTours.length,
+      tours: toursToReturn,
+      hasMore: hasMore,  // Frontend uses this for "See more" button
+      sortedBy: sort_by,
+      searchTerms: interests.join(' '),  // For "See more" navigation
+      onlyTransfers: onlyTransfers,
+      mostlyTransfers: mostlyTransfers,
+      suggestion: onlyTransfers
         ? `${destination} mainly has private transfers. Consider searching for a nearby larger city for more tour options.`
         : mostlyTransfers
         ? `Limited tours available in ${destination}. You might find more options in a nearby larger city.`
@@ -198,15 +179,20 @@ async function executeSearchTours(input) {
 function findBestDestinationMatch(query, results) {
   if (!results || results.length === 0) return null;
   if (results.length === 1) return results[0];
-  
+
   const queryLower = query.toLowerCase().trim();
+
+  // Extract the primary destination name (before any comma)
+  // e.g., "Santorini, Greece" -> "santorini"
   const primaryQuery = queryLower.split(',')[0].trim();
-  
+
+  // Score each result
   const scored = results.map(r => {
     const name = (r.name || r.destinationName || '').toLowerCase();
     const displayName = (r.displayName || '').toLowerCase();
     let score = 0;
-    
+
+    // Exact match on primary name - highest priority
     if (name === primaryQuery) {
       score = 100;
     } else if (name.startsWith(primaryQuery)) {
@@ -218,288 +204,21 @@ function findBestDestinationMatch(query, results) {
     } else if (displayName.includes(queryLower)) {
       score = 40;
     }
-    
+
+    // Boost cities over regions/countries - we want specific results
     if (r.type === 'CITY') score += 15;
     else if (r.type === 'REGION') score += 5;
-    else if (r.type === 'COUNTRY') score -= 10;
-    
+    else if (r.type === 'COUNTRY') score -= 10;  // Penalize countries
+
     return { ...r, score };
   });
-  
+
+  // Sort by score descending
   scored.sort((a, b) => b.score - a.score);
-  
+
   logger.info(`Destination matching for "${query}": ${scored.slice(0, 3).map(s => `${s.name}(${s.score})`).join(', ')}`);
-  
+
   return scored[0];
-}
-
-// ==========================================================================
-// SEARCH HOTELBEDS ACTIVITIES (NEW)
-// ==========================================================================
-
-async function executeSearchHotelbedsActivities(input) {
-  const {
-    destination,
-    destination_code,
-    from,
-    to,
-    adults = 2,
-    children = 0,
-    children_ages = [],
-    result_count = 5
-  } = input;
-
-  const CHAT_ACTIVITY_LIMIT = 10;
-  const effectiveResultCount = Math.min(result_count || 5, CHAT_ACTIVITY_LIMIT);
-
-  logger.info(`Searching HotelBeds activities in ${destination}`, { from, to, adults, children });
-
-  try {
-    // Resolve destination code
-    let destCode = destination_code;
-    let destName = destination;
-
-    if (!destCode) {
-      const destInfo = findDestinationCode(destination);
-      if (destInfo) {
-        destCode = destInfo.code;
-        destName = destInfo.name;
-        logger.info(`Resolved "${destination}" -> ${destName} (${destCode})`);
-      }
-    }
-
-    if (!destCode) {
-      return {
-        success: false,
-        activities: [],
-        message: `I couldn't find "${destination}" in the HotelBeds system. Try a major European city like Barcelona, Rome, Paris, or London.`,
-        suggestion: 'Would you like me to search for tours on Viator instead?'
-      };
-    }
-
-    // Build paxes array (HotelBeds requires age for each person)
-    const paxes = [];
-    for (let i = 0; i < adults; i++) {
-      paxes.push({ age: 30 });
-    }
-    for (let i = 0; i < children; i++) {
-      paxes.push({ age: children_ages[i] || 10 });
-    }
-
-    // Search activities
-    const activities = await searchActivities({
-      destination: destCode,
-      from,
-      to,
-      paxes,
-      resultCount: effectiveResultCount + 1,
-      language: 'en'
-    });
-
-    if (!activities || activities.length === 0) {
-      return {
-        success: true,
-        activities: [],
-        hasMore: false,
-        message: `No activities found in ${destName} for ${from} to ${to}.`,
-        suggestion: 'Try different dates or search on Viator for more options.'
-      };
-    }
-
-    // Check if there are more results
-    const hasMore = activities.length > effectiveResultCount;
-    const returnedActivities = activities.slice(0, effectiveResultCount);
-
-    // Separate tickets from excursions for better presentation
-    const tickets = returnedActivities.filter(a => a.type === 'TICKET');
-    const excursions = returnedActivities.filter(a => a.type === 'EXCURSION');
-
-    return {
-      success: true,
-      provider: 'hotelbeds',
-      destination: destName,
-      destinationCode: destCode,
-      dateRange: { from, to },
-      totalResults: returnedActivities.length,
-      hasMore,
-      ticketCount: tickets.length,
-      excursionCount: excursions.length,
-      activities: returnedActivities.map((activity, index) => ({
-        position: index + 1,
-        code: activity.code,
-        name: activity.name,
-        type: activity.type,
-        typeLabel: activity.type === 'TICKET' ? '🎫 Ticket' : '🚌 Excursion',
-        price: activity.price,
-        currency: activity.currency,
-        priceType: activity.priceType,
-        duration: activity.duration,
-        description: activity.shortDescription,
-        image: activity.image,
-        features: activity.features,
-        rateKey: activity.rateKey
-      }))
-    };
-
-  } catch (error) {
-    logger.error('HotelBeds activity search failed:', error.message);
-    return {
-      success: false,
-      error: true,
-      message: `Unable to search activities: ${error.message}`,
-      suggestion: 'Would you like me to search for tours on Viator instead?'
-    };
-  }
-}
-
-// ==========================================================================
-// GET HOTELBEDS ACTIVITY DETAILS (NEW)
-// ==========================================================================
-
-async function executeGetHotelbedsActivityDetails(input) {
-  const {
-    activity_code,
-    from,
-    to,
-    adults = 2,
-    full_details = false
-  } = input;
-
-  logger.info(`Getting HotelBeds activity details: ${activity_code}`);
-
-  try {
-    const paxes = [];
-    for (let i = 0; i < adults; i++) {
-      paxes.push({ age: 30 });
-    }
-
-    const activity = await getActivityDetails(
-      activity_code,
-      from,
-      to,
-      paxes,
-      'en',
-      full_details
-    );
-
-    if (!activity) {
-      return {
-        success: false,
-        message: `Activity ${activity_code} not found or not available for these dates.`
-      };
-    }
-
-    return {
-      success: true,
-      provider: 'hotelbeds',
-      activity: {
-        code: activity.code,
-        name: activity.name,
-        type: activity.type,
-        typeLabel: activity.type === 'TICKET' ? 'Ticket/Entry' : 'Excursion with Transport',
-        description: activity.description,
-        price: activity.price,
-        currency: activity.currency,
-        priceType: activity.priceType,
-        duration: activity.duration,
-        location: activity.location,
-        meetingPoint: activity.meetingPoint,
-        highlights: activity.highlights?.slice(0, 5),
-        includedServices: activity.includedServices?.slice(0, 8),
-        excludedServices: activity.excludedServices?.slice(0, 5),
-        importantInfo: activity.importantInfo?.slice(0, 5),
-        images: activity.images?.slice(0, 3),
-        modalities: activity.modalities?.map(m => ({
-          code: m.code,
-          name: m.name,
-          duration: m.duration,
-          prices: m.rates?.slice(0, 3).map(r => ({
-            amount: r.amount,
-            currency: r.currency,
-            rateKey: r.rateKey
-          }))
-        })),
-        features: activity.features
-      }
-    };
-
-  } catch (error) {
-    logger.error('HotelBeds activity details failed:', error.message);
-    return {
-      success: false,
-      error: true,
-      message: `Unable to get activity details: ${error.message}`
-    };
-  }
-}
-
-// ==========================================================================
-// SEARCH ACTIVITIES NEAR HOTEL (NEW)
-// ==========================================================================
-
-async function executeSearchActivitiesNearHotel(input) {
-  const {
-    hotel_code,
-    from,
-    to,
-    adults = 2,
-    result_count = 5
-  } = input;
-
-  logger.info(`Searching activities near hotel: ${hotel_code}`);
-
-  try {
-    const paxes = [];
-    for (let i = 0; i < adults; i++) {
-      paxes.push({ age: 30 });
-    }
-
-    const activities = await searchActivitiesByHotel({
-      hotelCode: hotel_code,
-      from,
-      to,
-      paxes,
-      resultCount: Math.min(result_count, 10),
-      language: 'en'
-    });
-
-    if (!activities || activities.length === 0) {
-      return {
-        success: true,
-        activities: [],
-        message: `No activities found near hotel ${hotel_code} for these dates.`,
-        suggestion: 'Try searching by destination instead.'
-      };
-    }
-
-    return {
-      success: true,
-      provider: 'hotelbeds',
-      hotelCode: hotel_code,
-      dateRange: { from, to },
-      totalResults: activities.length,
-      activities: activities.map((activity, index) => ({
-        position: index + 1,
-        code: activity.code,
-        name: activity.name,
-        type: activity.type,
-        typeLabel: activity.type === 'TICKET' ? '🎫 Ticket' : '🚌 Excursion',
-        price: activity.price,
-        currency: activity.currency,
-        duration: activity.duration,
-        description: activity.shortDescription,
-        image: activity.image
-      }))
-    };
-
-  } catch (error) {
-    logger.error('Hotel activity search failed:', error.message);
-    return {
-      success: false,
-      error: true,
-      message: `Unable to search activities near hotel: ${error.message}`
-    };
-  }
 }
 
 // ==========================================================================
@@ -572,13 +291,13 @@ async function executeIdentifyLocation(input) {
 
   try {
     const result = await identifyLocation(image_url || image_data);
-    
+
     return {
       success: true,
       location: result.location,
       confidence: result.confidence,
       description: result.description,
-      suggestion: result.location 
+      suggestion: result.location
         ? `Would you like me to find tours in ${result.location}?`
         : 'I couldn\'t identify this location. Could you tell me more about where this is?'
     };
