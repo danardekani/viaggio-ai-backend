@@ -1,7 +1,7 @@
 // ============================================================================
 // HOTELBEDS ACTIVITIES API SERVICE
 // ============================================================================
-// Integration with HotelBeds Activities API for tours and experiences
+// Integration with HotelBeds Activities Booking API and Content API
 // API Docs: https://developer.hotelbeds.com/documentation/activities/
 // ============================================================================
 
@@ -13,181 +13,22 @@ import { logger } from '../../utils/logger.js';
 // ============================================================================
 
 // API Base URLs - Sandbox
-const ACTIVITY_API_BASE = 'https://api.test.hotelbeds.com/activity-api/3.0';
-const ACTIVITY_CONTENT_API_BASE = 'https://api.test.hotelbeds.com/activity-content-api/3.0';
+const BOOKING_API_BASE = 'https://api.test.hotelbeds.com/activity-booking-api/1.0';
+const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/activity-content-api/3.0';
 
 // For Production, change to:
-// const ACTIVITY_API_BASE = 'https://api.hotelbeds.com/activity-api/3.0';
-// const ACTIVITY_CONTENT_API_BASE = 'https://api.hotelbeds.com/activity-content-api/3.0';
+// const BOOKING_API_BASE = 'https://api.hotelbeds.com/activity-booking-api/1.0';
+// const CONTENT_API_BASE = 'https://api.hotelbeds.com/activity-content-api/3.0';
 
 const API_KEY = process.env.HOTELBEDS_API_KEY;
 const API_SECRET = process.env.HOTELBEDS_API_SECRET;
 
-const FETCH_TIMEOUT_MS = 15000; // 15 second timeout
+// Cache configuration
+const destinationsCache = new Map();
+const DESTINATIONS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-// ============================================================================
-// CACHE
-// ============================================================================
-
-const activityCache = new Map();
-const ACTIVITY_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-const contentCache = new Map();
-const CONTENT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
-// ============================================================================
-// DESTINATION MAPPING
-// Maps destination names to HotelBeds destination codes
-// ============================================================================
-
-const DESTINATION_CODES = {
-  // United States
-  'new york': 'NYC', 'new york city': 'NYC', 'manhattan': 'NYC',
-  'los angeles': 'LAX', 'la': 'LAX',
-  'chicago': 'CHI',
-  'miami': 'MIA', 'miami beach': 'MIA',
-  'san francisco': 'SFO',
-  'las vegas': 'LAS', 'vegas': 'LAS',
-  'orlando': 'ORL',
-  'boston': 'BOS',
-  'washington': 'WAS', 'washington dc': 'WAS', 'dc': 'WAS',
-  'seattle': 'SEA',
-  'denver': 'DEN',
-  'atlanta': 'ATL',
-  'phoenix': 'PHX',
-  'san diego': 'SAN',
-  'austin': 'AUS',
-  'nashville': 'NAS',
-  'new orleans': 'NOL',
-  'philadelphia': 'PHL',
-  'honolulu': 'HNL', 'hawaii': 'HNL', 'oahu': 'HNL',
-
-  // Europe - Spain
-  'barcelona': 'BCN',
-  'madrid': 'MAD',
-  'seville': 'SEV', 'sevilla': 'SEV',
-  'valencia': 'VLC',
-  'malaga': 'AGP',
-  'granada': 'GRX',
-
-  // Europe - Portugal
-  'lisbon': 'LIS', 'lisboa': 'LIS',
-  'porto': 'OPO',
-  'faro': 'FAO', 'algarve': 'FAO',
-
-  // Europe - UK & Ireland
-  'london': 'LON',
-  'edinburgh': 'EDI',
-  'manchester': 'MAN',
-  'dublin': 'DUB',
-
-  // Europe - France
-  'paris': 'PAR',
-  'nice': 'NCE',
-  'lyon': 'LYS',
-
-  // Europe - Italy
-  'rome': 'ROM', 'roma': 'ROM',
-  'milan': 'MIL', 'milano': 'MIL',
-  'venice': 'VCE', 'venezia': 'VCE',
-  'florence': 'FLR', 'firenze': 'FLR',
-  'naples': 'NAP', 'napoli': 'NAP',
-
-  // Europe - Germany & Austria
-  'berlin': 'BER',
-  'munich': 'MUC', 'munchen': 'MUC',
-  'frankfurt': 'FRA',
-  'vienna': 'VIE', 'wien': 'VIE',
-
-  // Europe - Other
-  'amsterdam': 'AMS',
-  'prague': 'PRG', 'praha': 'PRG',
-  'budapest': 'BUD',
-  'athens': 'ATH',
-  'istanbul': 'IST',
-  'zurich': 'ZRH',
-  'geneva': 'GVA',
-  'brussels': 'BRU',
-  'copenhagen': 'CPH',
-  'oslo': 'OSL',
-  'stockholm': 'STO',
-  'helsinki': 'HEL',
-  'warsaw': 'WAW',
-  'krakow': 'KRK',
-
-  // Asia
-  'tokyo': 'TYO',
-  'singapore': 'SIN',
-  'bangkok': 'BKK',
-  'hong kong': 'HKG',
-  'seoul': 'SEL',
-  'beijing': 'PEK',
-  'shanghai': 'SHA',
-  'delhi': 'DEL', 'new delhi': 'DEL',
-  'mumbai': 'BOM', 'bombay': 'BOM',
-  'kuala lumpur': 'KUL', 'kl': 'KUL',
-  'hanoi': 'HAN',
-  'ho chi minh': 'SGN', 'ho chi minh city': 'SGN', 'saigon': 'SGN',
-  'bali': 'DPS', 'denpasar': 'DPS',
-
-  // Oceania
-  'sydney': 'SYD',
-  'melbourne': 'MEL',
-  'auckland': 'AKL',
-
-  // Americas
-  'cancun': 'CUN',
-  'mexico city': 'MEX',
-  'rio de janeiro': 'RIO', 'rio': 'RIO',
-  'sao paulo': 'SAO',
-  'buenos aires': 'BUE',
-  'lima': 'LIM',
-  'bogota': 'BOG',
-  'santiago': 'SCL',
-
-  // Middle East & Africa
-  'dubai': 'DXB',
-  'abu dhabi': 'AUH',
-  'doha': 'DOH',
-  'tel aviv': 'TLV',
-  'cairo': 'CAI',
-  'cape town': 'CPT',
-  'johannesburg': 'JNB',
-  'casablanca': 'CMN',
-  'marrakech': 'RAK', 'marrakesh': 'RAK',
-};
-
-// Coordinates for GPS-based search fallback
-const DESTINATION_COORDS = {
-  'NYC': { lat: 40.7128, lng: -74.0060 },
-  'LAX': { lat: 34.0522, lng: -118.2437 },
-  'CHI': { lat: 41.8781, lng: -87.6298 },
-  'MIA': { lat: 25.7617, lng: -80.1918 },
-  'SFO': { lat: 37.7749, lng: -122.4194 },
-  'LAS': { lat: 36.1699, lng: -115.1398 },
-  'ORL': { lat: 28.5383, lng: -81.3792 },
-  'BOS': { lat: 42.3601, lng: -71.0589 },
-  'WAS': { lat: 38.9072, lng: -77.0369 },
-  'SEA': { lat: 47.6062, lng: -122.3321 },
-  'BCN': { lat: 41.3851, lng: 2.1734 },
-  'MAD': { lat: 40.4168, lng: -3.7038 },
-  'PAR': { lat: 48.8566, lng: 2.3522 },
-  'LON': { lat: 51.5074, lng: -0.1278 },
-  'ROM': { lat: 41.9028, lng: 12.4964 },
-  'VCE': { lat: 45.4408, lng: 12.3155 },
-  'FLR': { lat: 43.7696, lng: 11.2558 },
-  'AMS': { lat: 52.3676, lng: 4.9041 },
-  'PRG': { lat: 50.0755, lng: 14.4378 },
-  'VIE': { lat: 48.2082, lng: 16.3738 },
-  'LIS': { lat: 38.7223, lng: -9.1393 },
-  'DUB': { lat: 53.3498, lng: -6.2603 },
-  'TYO': { lat: 35.6762, lng: 139.6503 },
-  'SIN': { lat: 1.3521, lng: 103.8198 },
-  'BKK': { lat: 13.7563, lng: 100.5018 },
-  'DXB': { lat: 25.2048, lng: 55.2708 },
-  'SYD': { lat: -33.8688, lng: 151.2093 },
-  'CUN': { lat: 21.1619, lng: -86.8515 },
-};
+const countriesCache = new Map();
+const COUNTRIES_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // ============================================================================
 // AUTHENTICATION
@@ -203,13 +44,16 @@ function generateSignature() {
     .createHash('sha256')
     .update(API_KEY + API_SECRET + timestamp)
     .digest('hex');
-
+  
   return { signature, timestamp };
 }
 
+/**
+ * Get standard headers for HotelBeds API requests
+ */
 function getHeaders() {
   const { signature } = generateSignature();
-
+  
   return {
     'Api-key': API_KEY,
     'X-Signature': signature,
@@ -220,249 +64,203 @@ function getHeaders() {
 }
 
 // ============================================================================
-// FETCH WITH TIMEOUT
-// ============================================================================
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    return response;
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeoutMs}ms: ${url}`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-// ============================================================================
-// DESTINATION LOOKUP
+// CONTENT API - DESTINATIONS
 // ============================================================================
 
 /**
- * Find destination code from search query
+ * Fetch countries from Content API
+ * Cached for 30 days
  */
-function findDestination(query) {
-  const normalized = query.toLowerCase().trim();
-
-  // Direct match
-  if (DESTINATION_CODES[normalized]) {
-    const code = DESTINATION_CODES[normalized];
-    return {
-      code,
-      coords: DESTINATION_COORDS[code] || null
-    };
+export async function fetchCountries(language = 'en') {
+  const cacheKey = `countries_${language}`;
+  const cached = countriesCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < COUNTRIES_CACHE_TTL) {
+    logger.info(`Using cached countries (${cached.data.length} countries)`);
+    return cached.data;
   }
 
-  // Partial match
-  for (const [key, code] of Object.entries(DESTINATION_CODES)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
-      return {
-        code,
-        coords: DESTINATION_COORDS[code] || null
-      };
-    }
-  }
-
-  return null;
-}
-
-// ============================================================================
-// ACTIVITY SEARCH
-// ============================================================================
-
-/**
- * Search for activities in a destination
- *
- * @param {Object} options Search options
- * @param {string} options.destination Destination name (e.g., "Barcelona", "New York")
- * @param {string} options.startDate Start date (YYYY-MM-DD)
- * @param {string} options.endDate End date (YYYY-MM-DD)
- * @param {number} options.resultCount Max results to return
- * @param {string} options.sortBy Sort order: 'popular', 'price_low', 'price_high', 'name'
- * @returns {Promise<Object>} Search results with normalized activity data
- */
-export async function searchActivities({
-  destination,
-  startDate,
-  endDate,
-  resultCount = 50,
-  sortBy = 'popular',
-  minPrice,
-  maxPrice
-}) {
-  if (!API_KEY || !API_SECRET) {
-    logger.warn('HotelBeds API credentials not configured');
-    return { activities: [], totalCount: 0, provider: 'hotelbeds' };
-  }
-
-  const destInfo = findDestination(destination);
-  if (!destInfo) {
-    logger.warn(`Destination not found for HotelBeds Activities: ${destination}`);
-    return { activities: [], totalCount: 0, provider: 'hotelbeds' };
-  }
-
-  // Generate cache key
-  const cacheKey = `${destInfo.code}_${startDate}_${endDate}_${sortBy}_${minPrice}_${maxPrice}`;
-  const cached = activityCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < ACTIVITY_CACHE_TTL) {
-    logger.info(`[HotelBeds Activities] Cache hit for ${destination}`);
-    const activities = cached.data.slice(0, resultCount);
-    return {
-      activities,
-      totalCount: cached.totalCount,
-      hasMore: cached.totalCount > resultCount,
-      provider: 'hotelbeds'
-    };
-  }
-
-  // Build default dates if not provided (next 30 days)
-  const today = new Date();
-  const defaultStart = startDate || today.toISOString().split('T')[0];
-  const defaultEnd = endDate || new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-  // Build search filters
-  const searchFilterItems = [];
-
-  // Try destination code first
-  searchFilterItems.push({ type: 'destination', value: destInfo.code });
-
-  // Add price filters if provided
-  if (minPrice) {
-    searchFilterItems.push({ type: 'priceFrom', value: String(minPrice) });
-  }
-  if (maxPrice) {
-    searchFilterItems.push({ type: 'priceTo', value: String(maxPrice) });
-  }
-
-  const requestBody = {
-    filters: [{
-      searchFilterItems
-    }],
-    from: defaultStart,
-    to: defaultEnd,
-    language: 'en',
-    pagination: {
-      itemsPerPage: Math.min(resultCount * 2, 100), // Fetch more to allow for filtering
-      page: 1
-    },
-    order: mapSortOrder(sortBy)
-  };
-
-  logger.info(`[HotelBeds Activities] Searching: ${destination} (${destInfo.code}), ${defaultStart} to ${defaultEnd}`);
+  logger.info('Fetching countries from HotelBeds Activities Content API...');
 
   try {
-    const response = await fetchWithTimeout(`${ACTIVITY_API_BASE}/activities`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(requestBody)
-    });
+    const response = await fetch(
+      `${CONTENT_API_BASE}/countries/${language}`,
+      {
+        method: 'GET',
+        headers: getHeaders()
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(`[HotelBeds Activities] API error ${response.status}:`, errorText);
-
-      // If destination code fails, try GPS coordinates
-      if (destInfo.coords && response.status === 400) {
-        return searchActivitiesByGPS({
-          coords: destInfo.coords,
-          destination,
-          startDate: defaultStart,
-          endDate: defaultEnd,
-          resultCount,
-          sortBy,
-          minPrice,
-          maxPrice
-        });
-      }
-
-      return { activities: [], totalCount: 0, provider: 'hotelbeds' };
+      logger.error(`HotelBeds Activities Content API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Activities Content API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const activities = data.activities || [];
-
-    logger.info(`[HotelBeds Activities] Found ${activities.length} activities in ${destination}`);
-
-    // Fetch content for images and descriptions
-    const activityCodes = activities.map(a => a.code).filter(Boolean);
-    const contentMap = await fetchActivityContent(activityCodes);
-
-    // Normalize activities to match Viator format
-    const normalizedActivities = activities.map(activity =>
-      normalizeActivity(activity, contentMap.get(activity.code), destination)
-    );
-
-    // Cache the results
-    activityCache.set(cacheKey, {
-      data: normalizedActivities,
-      totalCount: data.totalItems || normalizedActivities.length,
+    const countries = data.countries || [];
+    
+    countriesCache.set(cacheKey, {
+      data: countries,
       timestamp: Date.now()
     });
 
-    return {
-      activities: normalizedActivities.slice(0, resultCount),
-      totalCount: data.totalItems || normalizedActivities.length,
-      hasMore: (data.totalItems || normalizedActivities.length) > resultCount,
-      provider: 'hotelbeds'
-    };
+    logger.info(`Cached ${countries.length} countries for activities`);
+    return countries;
 
   } catch (error) {
-    logger.error('[HotelBeds Activities] Search error:', error.message);
-    return { activities: [], totalCount: 0, provider: 'hotelbeds' };
+    logger.error('Error fetching countries:', error);
+    throw error;
   }
 }
 
 /**
- * Search activities by GPS coordinates (fallback)
+ * Fetch destinations for a country from Content API
+ * Cached for 24 hours
  */
-async function searchActivitiesByGPS({
-  coords,
-  destination,
-  startDate,
-  endDate,
-  resultCount = 50,
-  sortBy = 'popular',
-  minPrice,
-  maxPrice
-}) {
-  const searchFilterItems = [
-    { type: 'gps', latitude: coords.lat, longitude: coords.lng }
-  ];
+export async function fetchDestinations(countryCode, language = 'en') {
+  const cacheKey = `destinations_${countryCode}_${language}`;
+  const cached = destinationsCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < DESTINATIONS_CACHE_TTL) {
+    logger.info(`Using cached destinations for ${countryCode} (${cached.data.length} destinations)`);
+    return cached.data;
+  }
 
-  if (minPrice) {
-    searchFilterItems.push({ type: 'priceFrom', value: String(minPrice) });
+  logger.info(`Fetching destinations for ${countryCode} from HotelBeds Activities Content API...`);
+
+  try {
+    const response = await fetch(
+      `${CONTENT_API_BASE}/destinations/${language}/${countryCode}`,
+      {
+        method: 'GET',
+        headers: getHeaders()
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`HotelBeds Activities Content API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Activities Content API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const destinations = data.destinations || [];
+    
+    destinationsCache.set(cacheKey, {
+      data: destinations,
+      timestamp: Date.now()
+    });
+
+    logger.info(`Cached ${destinations.length} destinations for ${countryCode}`);
+    return destinations;
+
+  } catch (error) {
+    logger.error(`Error fetching destinations for ${countryCode}:`, error);
+    throw error;
   }
-  if (maxPrice) {
-    searchFilterItems.push({ type: 'priceTo', value: String(maxPrice) });
+}
+
+/**
+ * Get activity content (images, descriptions, etc.) from Content API
+ */
+export async function getActivityContent(activityCode, modalityCode = null, language = 'en') {
+  logger.info(`Fetching activity content: ${activityCode}`);
+
+  try {
+    // Use single content endpoint if we have modality, otherwise use multi
+    if (modalityCode) {
+      const response = await fetch(
+        `${CONTENT_API_BASE}/activities/${language}/${activityCode}/${modalityCode}`,
+        {
+          method: 'GET',
+          headers: getHeaders()
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error(`Activity content API error: ${response.status} - ${errorText}`);
+        throw new Error(`Activity content API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.activity || null;
+    } else {
+      // Use multi-content endpoint for just the activity code
+      const response = await fetch(
+        `${CONTENT_API_BASE}/activities`,
+        {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            codes: [{ activityCode, modalityCodes: [] }],
+            language
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error(`Activity content API error: ${response.status} - ${errorText}`);
+        throw new Error(`Activity content API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.activities?.[0] || null;
+    }
+
+  } catch (error) {
+    logger.error('Error fetching activity content:', error);
+    throw error;
   }
+}
+
+// ============================================================================
+// BOOKING API - SEARCH ACTIVITIES
+// ============================================================================
+
+/**
+ * Search activities by destination
+ * 
+ * @param {Object} params Search parameters
+ * @param {string} params.destination - Destination code (e.g., 'PMI' for Palma de Mallorca)
+ * @param {string} params.from - Start date (YYYY-MM-DD)
+ * @param {string} params.to - End date (YYYY-MM-DD)
+ * @param {Array} params.paxes - Array of pax objects with age (e.g., [{age: 30}, {age: 30}])
+ * @param {number} params.resultCount - Number of results to return (default: 20)
+ * @param {string} params.language - Language code (default: 'en')
+ */
+export async function searchActivities({
+  destination,
+  from,
+  to,
+  paxes = [{ age: 30 }, { age: 30 }],
+  resultCount = 20,
+  language = 'en'
+}) {
+  logger.info(`Searching activities in ${destination} from ${from} to ${to}`);
 
   const requestBody = {
     filters: [{
-      searchFilterItems
+      searchFilterItems: [{
+        type: 'destination',
+        value: destination
+      }]
     }],
-    from: startDate,
-    to: endDate,
-    language: 'en',
+    from,
+    to,
+    language,
+    paxes,
     pagination: {
-      itemsPerPage: Math.min(resultCount * 2, 100),
+      itemsPerPage: Math.min(resultCount, 50),
       page: 1
     },
-    order: mapSortOrder(sortBy)
+    order: 'DEFAULT'
   };
 
-  logger.info(`[HotelBeds Activities] GPS search: ${destination} (${coords.lat}, ${coords.lng})`);
-
   try {
-    const response = await fetchWithTimeout(`${ACTIVITY_API_BASE}/activities`, {
+    const response = await fetch(`${BOOKING_API_BASE}/activities`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(requestBody)
@@ -470,302 +268,192 @@ async function searchActivitiesByGPS({
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(`[HotelBeds Activities] GPS search error ${response.status}:`, errorText);
-      return { activities: [], totalCount: 0, provider: 'hotelbeds' };
+      logger.error(`HotelBeds Activities Booking API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Activities Booking API error: ${response.status}`);
     }
 
     const data = await response.json();
     const activities = data.activities || [];
 
-    logger.info(`[HotelBeds Activities] GPS search found ${activities.length} activities`);
+    logger.info(`Found ${activities.length} activities in ${destination}`);
 
-    // Fetch content for images
-    const activityCodes = activities.map(a => a.code).filter(Boolean);
-    const contentMap = await fetchActivityContent(activityCodes);
-
-    // Normalize activities
-    const normalizedActivities = activities.map(activity =>
-      normalizeActivity(activity, contentMap.get(activity.code), destination)
+    // Format the results
+    const formattedActivities = activities.slice(0, resultCount).map(activity => 
+      formatActivityResult(activity)
     );
 
-    return {
-      activities: normalizedActivities.slice(0, resultCount),
-      totalCount: data.totalItems || normalizedActivities.length,
-      hasMore: (data.totalItems || normalizedActivities.length) > resultCount,
-      provider: 'hotelbeds'
-    };
+    return formattedActivities;
 
   } catch (error) {
-    logger.error('[HotelBeds Activities] GPS search error:', error.message);
-    return { activities: [], totalCount: 0, provider: 'hotelbeds' };
-  }
-}
-
-// ============================================================================
-// ACTIVITY CONTENT (Images, Descriptions)
-// ============================================================================
-
-/**
- * Fetch activity content from Content API
- */
-async function fetchActivityContent(activityCodes) {
-  const contentMap = new Map();
-
-  if (!activityCodes || activityCodes.length === 0) {
-    return contentMap;
-  }
-
-  // Check cache first
-  const uncachedCodes = [];
-  for (const code of activityCodes) {
-    const cached = contentCache.get(code);
-    if (cached && Date.now() - cached.timestamp < CONTENT_CACHE_TTL) {
-      contentMap.set(code, cached.data);
-    } else {
-      uncachedCodes.push(code);
-    }
-  }
-
-  if (uncachedCodes.length === 0) {
-    return contentMap;
-  }
-
-  // Batch fetch content (max 100 at a time)
-  const BATCH_SIZE = 50;
-
-  for (let i = 0; i < uncachedCodes.length; i += BATCH_SIZE) {
-    const batch = uncachedCodes.slice(i, i + BATCH_SIZE);
-
-    try {
-      const requestBody = {
-        codes: batch,
-        language: 'en'
-      };
-
-      const response = await fetchWithTimeout(`${ACTIVITY_CONTENT_API_BASE}/activities`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(requestBody)
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const activities = data.activitiesContent || [];
-
-        for (const activity of activities) {
-          const code = activity.code;
-          contentCache.set(code, {
-            data: activity,
-            timestamp: Date.now()
-          });
-          contentMap.set(code, activity);
-        }
-      }
-    } catch (error) {
-      logger.warn('[HotelBeds Activities] Content fetch error:', error.message);
-    }
-  }
-
-  return contentMap;
-}
-
-// ============================================================================
-// DATA NORMALIZATION
-// ============================================================================
-
-/**
- * Map sort order to HotelBeds API format
- */
-function mapSortOrder(sortBy) {
-  switch (sortBy) {
-    case 'price_low':
-    case 'price':
-      return 'PRICE';
-    case 'name':
-      return 'NAME';
-    case 'popular':
-    case 'reviews':
-    case 'rating':
-    default:
-      return 'DEFAULT';
+    logger.error('Activity search error:', error);
+    throw error;
   }
 }
 
 /**
- * Normalize HotelBeds activity to match Viator tour format
+ * Search activities by geolocation
  */
-function normalizeActivity(activity, content, destination) {
-  // Extract price
-  const priceInfo = activity.amountsFrom?.[0] || {};
-  const price = priceInfo.amount || activity.amountFrom || 0;
-  const currency = priceInfo.currencyCode || activity.currency || 'USD';
+export async function searchActivitiesByLocation({
+  latitude,
+  longitude,
+  radius = 30,
+  from,
+  to,
+  paxes = [{ age: 30 }, { age: 30 }],
+  resultCount = 20,
+  language = 'en'
+}) {
+  logger.info(`Searching activities near (${latitude}, ${longitude}) radius ${radius}km`);
 
-  // Extract duration from modalities
-  let durationMinutes = null;
-  let durationText = null;
-
-  if (activity.modalities?.[0]) {
-    const modality = activity.modalities[0];
-    if (modality.duration) {
-      // Duration might be in different formats
-      const durMatch = modality.duration.match(/(\d+)\s*(hour|hr|h|minute|min|m|day|d)/i);
-      if (durMatch) {
-        const value = parseInt(durMatch[1]);
-        const unit = durMatch[2].toLowerCase();
-        if (unit.startsWith('h')) {
-          durationMinutes = value * 60;
-        } else if (unit.startsWith('m')) {
-          durationMinutes = value;
-        } else if (unit.startsWith('d')) {
-          durationMinutes = value * 24 * 60;
-        }
-      }
-      durationText = modality.duration;
-    }
-  }
-
-  // Format duration display
-  let duration = durationText;
-  if (!duration && durationMinutes) {
-    if (durationMinutes >= 60) {
-      const hours = Math.floor(durationMinutes / 60);
-      const mins = durationMinutes % 60;
-      duration = mins > 0 ? `${hours}h ${mins}m` : `${hours} hours`;
-    } else {
-      duration = `${durationMinutes} minutes`;
-    }
-  }
-
-  // Extract images from content
-  const images = extractImages(content);
-  const image = images[0] || null;
-
-  // Build flags
-  const flags = [];
-  if (activity.freeCancellation) flags.push('FREE_CANCELLATION');
-  if (activity.instantConfirmation) flags.push('INSTANT_CONFIRMATION');
-
-  // Extract description
-  const description = content?.description ||
-    content?.shortDescription ||
-    activity.name || '';
-
-  // Build booking link
-  const bookingLink = buildActivityBookingLink(activity.code, destination);
-
-  return {
-    id: `hb_${activity.code}`,
-    name: activity.name || content?.name || 'Activity',
-    description: cleanDescription(description),
-    duration,
-    durationMinutes,
-    rating: activity.rating || null,
-    reviewCount: activity.reviewCount || 0,
-    price: parseFloat(price) || 0,
-    originalPrice: null,
-    hasDiscount: false,
-    currency,
-    image,
-    images,
-    flags,
-    bookingLink,
-    link: bookingLink,
-    productCode: activity.code,
-    pricingType: 'person',
-    pricingUnit: 'PER_PERSON',
-    maxGroupSize: null,
-    isPrivateTour: (activity.name || '').toLowerCase().includes('private'),
-    highlights: content?.highlights || [],
-    insiderTips: [],
-    inclusions: content?.includes || [],
-    exclusions: content?.excludes || [],
-    itinerary: [],
-    additionalInfo: content?.importantInfo || [],
-    cancellationPolicy: activity.freeCancellation ?
-      'Free cancellation available' :
-      (content?.cancellationPolicy || null),
-    languages: content?.languages || [],
-    // Provider identification
-    provider: 'hotelbeds',
-    providerCode: activity.code,
-    destination: destination
+  const requestBody = {
+    filters: [{
+      searchFilterItems: [{
+        type: 'geolocation',
+        latitude,
+        longitude,
+        radius
+      }]
+    }],
+    from,
+    to,
+    language,
+    paxes,
+    pagination: {
+      itemsPerPage: Math.min(resultCount, 50),
+      page: 1
+    },
+    order: 'DEFAULT'
   };
-}
 
-/**
- * Extract images from content
- */
-function extractImages(content) {
-  if (!content?.media?.images) {
-    return [];
+  try {
+    const response = await fetch(`${BOOKING_API_BASE}/activities`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`HotelBeds Activities API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Activities API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const activities = data.activities || [];
+
+    logger.info(`Found ${activities.length} activities near (${latitude}, ${longitude})`);
+
+    const formattedActivities = activities.slice(0, resultCount).map(activity => 
+      formatActivityResult(activity)
+    );
+
+    return formattedActivities;
+
+  } catch (error) {
+    logger.error('Activity geolocation search error:', error);
+    throw error;
   }
-
-  // Sort by size preference (large > medium > small)
-  const sizeOrder = { 'XLARGE': 1, 'LARGE': 2, 'MEDIUM': 3, 'SMALL': 4 };
-
-  const images = content.media.images
-    .filter(img => img.url)
-    .sort((a, b) => (sizeOrder[a.size] || 5) - (sizeOrder[b.size] || 5))
-    .slice(0, 10)
-    .map(img => img.url);
-
-  return images;
 }
 
 /**
- * Clean HTML from description
+ * Search activities near a specific hotel
  */
-function cleanDescription(html) {
-  if (!html) return '';
-  return html
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export async function searchActivitiesByHotel({
+  hotelCode,
+  from,
+  to,
+  paxes = [{ age: 30 }, { age: 30 }],
+  resultCount = 20,
+  language = 'en'
+}) {
+  logger.info(`Searching activities near hotel ${hotelCode}`);
 
-/**
- * Build affiliate booking link
- */
-function buildActivityBookingLink(code, destination) {
-  // HotelBeds doesn't have direct consumer booking links
-  // This would typically go through your booking flow
-  return `https://www.hotelbeds.com/activities/${encodeURIComponent(destination)}/${code}`;
+  const requestBody = {
+    filters: [{
+      searchFilterItems: [{
+        type: 'hotel',
+        value: hotelCode
+      }]
+    }],
+    from,
+    to,
+    language,
+    paxes,
+    pagination: {
+      itemsPerPage: Math.min(resultCount, 50),
+      page: 1
+    },
+    order: 'DEFAULT'
+  };
+
+  try {
+    const response = await fetch(`${BOOKING_API_BASE}/activities`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`HotelBeds Activities API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HotelBeds Activities API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const activities = data.activities || [];
+
+    logger.info(`Found ${activities.length} activities near hotel ${hotelCode}`);
+
+    const formattedActivities = activities.slice(0, resultCount).map(activity => 
+      formatActivityResult(activity)
+    );
+
+    return formattedActivities;
+
+  } catch (error) {
+    logger.error('Activity hotel search error:', error);
+    throw error;
+  }
 }
 
 // ============================================================================
-// ACTIVITY DETAILS
+// BOOKING API - ACTIVITY DETAILS
 // ============================================================================
 
 /**
- * Get detailed information for a specific activity
+ * Get detailed activity information with availability
+ * 
+ * @param {string} activityCode - The activity code (e.g., 'E-E10-HIGHARTIST')
+ * @param {string} from - Start date (YYYY-MM-DD)
+ * @param {string} to - End date (YYYY-MM-DD)
+ * @param {Array} paxes - Array of pax objects with age
+ * @param {string} language - Language code (default: 'en')
+ * @param {boolean} fullDetails - Whether to fetch full details (default: false)
  */
-export async function getActivityDetails(activityCode, startDate, endDate) {
-  if (!API_KEY || !API_SECRET) {
-    throw new Error('HotelBeds API credentials not configured');
-  }
+export async function getActivityDetails(
+  activityCode,
+  from,
+  to,
+  paxes = [{ age: 30 }, { age: 30 }],
+  language = 'en',
+  fullDetails = false
+) {
+  logger.info(`Fetching activity details: ${activityCode} (full: ${fullDetails})`);
 
-  // Use default dates if not provided
-  const today = new Date();
-  const from = startDate || today.toISOString().split('T')[0];
-  const to = endDate || new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endpoint = fullDetails 
+    ? `${BOOKING_API_BASE}/activities/details/full`
+    : `${BOOKING_API_BASE}/activities/details`;
 
   const requestBody = {
     code: activityCode,
     from,
     to,
-    language: 'en',
-    paxes: [{ age: 30 }] // Default adult
+    language,
+    paxes
   };
 
-  logger.info(`[HotelBeds Activities] Getting details for: ${activityCode}`);
-
   try {
-    const response = await fetchWithTimeout(`${ACTIVITY_API_BASE}/activities/details`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(requestBody)
@@ -773,26 +461,333 @@ export async function getActivityDetails(activityCode, startDate, endDate) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API error ${response.status}: ${errorText}`);
+      logger.error(`Activity details API error: ${response.status} - ${errorText}`);
+      throw new Error(`Activity details API error: ${response.status}`);
     }
 
     const data = await response.json();
     const activity = data.activity;
 
     if (!activity) {
-      throw new Error('Activity not found');
+      throw new Error('Activity not found or not available');
     }
 
-    // Fetch content for images
-    const contentMap = await fetchActivityContent([activityCode]);
-    const content = contentMap.get(activityCode);
-
-    return normalizeActivity(activity, content, '');
+    return formatActivityDetailResult(activity, fullDetails);
 
   } catch (error) {
-    logger.error('[HotelBeds Activities] Details error:', error.message);
+    logger.error('Error fetching activity details:', error);
     throw error;
   }
+}
+
+// ============================================================================
+// BOOKING API - EXCURSION PICKUPS
+// ============================================================================
+
+/**
+ * Get pickup points for an excursion
+ * Required before booking excursions that need pickup
+ */
+export async function getExcursionPickups(pickupRetrievalKey, from, to) {
+  logger.info(`Fetching pickups for key: ${pickupRetrievalKey}`);
+
+  const requestBody = {
+    pickupRetrievalKey,
+    from,
+    to,
+    pagination: {
+      itemsPerPage: 50,
+      page: 1
+    }
+  };
+
+  try {
+    const response = await fetch(`${BOOKING_API_BASE}/activities/excursions/retrievePickups`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`Pickups API error: ${response.status} - ${errorText}`);
+      throw new Error(`Pickups API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.pickups || [];
+
+  } catch (error) {
+    logger.error('Error fetching pickups:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// FORMAT HELPERS
+// ============================================================================
+
+/**
+ * Format activity search result for frontend
+ */
+function formatActivityResult(activity) {
+  // Get the first/cheapest modality
+  const modality = activity.modalities?.[0];
+  const rate = modality?.rates?.[0];
+  
+  // Extract price info
+  const amount = rate?.amount || 0;
+  const currency = activity.currency || 'EUR';
+  
+  // Get images from content if available
+  const images = activity.content?.media?.images || [];
+  const primaryImage = images.find(img => img.visualizationOrder === 1) || images[0];
+  
+  return {
+    // Core identification
+    code: activity.code,
+    name: activity.name,
+    type: activity.type, // TICKET or EXCURSION
+    
+    // Location
+    destinationCode: activity.destinationCode,
+    destinationName: activity.destinationName,
+    country: activity.country,
+    
+    // Pricing
+    price: parseFloat(amount),
+    currency,
+    priceType: rate?.rateDetails?.[0]?.pricingType || 'ADULT', // ADULT, CHILD, PER_GROUP, etc.
+    
+    // Main modality info
+    modalityCode: modality?.code,
+    modalityName: modality?.name,
+    duration: modality?.duration?.value 
+      ? `${modality.duration.value} ${modality.duration.metric || 'hours'}`
+      : null,
+    
+    // Content
+    description: activity.content?.description || activity.description,
+    shortDescription: truncateText(activity.content?.description || activity.description, 200),
+    
+    // Images
+    image: primaryImage?.urls?.find(u => u.sizeType === 'LARGE')?.resource 
+        || primaryImage?.urls?.[0]?.resource
+        || null,
+    images: images.map(img => ({
+      url: img.urls?.find(u => u.sizeType === 'LARGE')?.resource || img.urls?.[0]?.resource,
+      caption: img.visualizationOrder
+    })),
+    
+    // Availability
+    operationDays: activity.operationDays || [],
+    
+    // Booking info
+    rateKey: rate?.rateKey,
+    
+    // Features
+    features: extractFeatures(activity),
+    
+    // Provider
+    provider: 'hotelbeds',
+    providerActivityCode: activity.code
+  };
+}
+
+/**
+ * Format detailed activity result
+ */
+function formatActivityDetailResult(activity, fullDetails = false) {
+  const base = formatActivityResult(activity);
+  
+  // Add detailed information
+  return {
+    ...base,
+    
+    // Full description
+    description: activity.content?.description || activity.description,
+    
+    // All modalities with their rates
+    modalities: (activity.modalities || []).map(modality => ({
+      code: modality.code,
+      name: modality.name,
+      duration: modality.duration?.value 
+        ? `${modality.duration.value} ${modality.duration.metric || 'hours'}`
+        : null,
+      rates: (modality.rates || []).map(rate => ({
+        rateKey: rate.rateKey,
+        amount: parseFloat(rate.amount || 0),
+        currency: activity.currency || 'EUR',
+        operationDates: rate.operationDates || [],
+        sessions: rate.sessions || [],
+        cancellationPolicies: rate.cancellationPolicies || []
+      }))
+    })),
+    
+    // Location details
+    location: activity.content?.location || null,
+    meetingPoint: activity.content?.meetingPoint || null,
+    
+    // Highlights and inclusions
+    highlights: activity.content?.highlights || [],
+    includedServices: activity.content?.featureGroups?.find(g => g.groupCode === 'INCLUDED')?.features || [],
+    excludedServices: activity.content?.featureGroups?.find(g => g.groupCode === 'NOT_INCLUDED')?.features || [],
+    
+    // Booking requirements
+    voucherInfo: activity.content?.redeemInfo || null,
+    importantInfo: activity.content?.importantInfo || [],
+    
+    // Categories and segments
+    categories: activity.content?.segmentationGroups || [],
+    
+    // Reviews if available
+    reviewCount: activity.reviewCount || 0,
+    averageRating: activity.averageRating || null,
+    
+    // Full details flag
+    isFullDetails: fullDetails
+  };
+}
+
+/**
+ * Extract features/tags from activity
+ */
+function extractFeatures(activity) {
+  const features = [];
+  
+  // Type-based features
+  if (activity.type === 'TICKET') {
+    features.push({ type: 'ticket', label: 'Ticket' });
+  } else if (activity.type === 'EXCURSION') {
+    features.push({ type: 'excursion', label: 'Excursion' });
+  }
+  
+  // Duration-based
+  const modality = activity.modalities?.[0];
+  if (modality?.duration?.value) {
+    const hours = modality.duration.value;
+    if (hours <= 3) {
+      features.push({ type: 'duration', label: 'Short Activity' });
+    } else if (hours >= 8) {
+      features.push({ type: 'duration', label: 'Full Day' });
+    }
+  }
+  
+  // Content-based features
+  if (activity.content?.featureGroups) {
+    const bookingFeatures = activity.content.featureGroups.find(g => g.groupCode === 'BOOKING');
+    if (bookingFeatures?.features) {
+      bookingFeatures.features.forEach(f => {
+        if (f.code === 'FREE_CANCELLATION') {
+          features.push({ type: 'cancellation', label: 'Free Cancellation' });
+        }
+        if (f.code === 'INSTANT_CONFIRMATION') {
+          features.push({ type: 'confirmation', label: 'Instant Confirmation' });
+        }
+        if (f.code === 'MOBILE_VOUCHER') {
+          features.push({ type: 'voucher', label: 'Mobile Voucher' });
+        }
+      });
+    }
+  }
+  
+  return features;
+}
+
+/**
+ * Truncate text to a maximum length
+ */
+function truncateText(text, maxLength) {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength).trim() + '...';
+}
+
+// ============================================================================
+// DESTINATION MAPPING HELPERS
+// ============================================================================
+
+// Common destination codes for HotelBeds Activities
+// Note: These may differ from Hotel API destination codes
+const POPULAR_ACTIVITY_DESTINATIONS = [
+  { code: 'PMI', name: 'Palma de Mallorca', country: 'ES' },
+  { code: 'BCN', name: 'Barcelona', country: 'ES' },
+  { code: 'MAD', name: 'Madrid', country: 'ES' },
+  { code: 'ROM', name: 'Rome', country: 'IT' },
+  { code: 'PAR', name: 'Paris', country: 'FR' },
+  { code: 'LON', name: 'London', country: 'GB' },
+  { code: 'AMS', name: 'Amsterdam', country: 'NL' },
+  { code: 'LIS', name: 'Lisbon', country: 'PT' },
+  { code: 'NYC', name: 'New York', country: 'US' },
+  { code: 'MIA', name: 'Miami', country: 'US' },
+  { code: 'LAS', name: 'Las Vegas', country: 'US' },
+  { code: 'CUN', name: 'Cancun', country: 'MX' },
+  { code: 'DXB', name: 'Dubai', country: 'AE' },
+  { code: 'BKK', name: 'Bangkok', country: 'TH' },
+  { code: 'TYO', name: 'Tokyo', country: 'JP' }
+];
+
+/**
+ * Find destination code by name (fuzzy matching)
+ */
+export function findDestinationCode(destinationName) {
+  const searchTerm = destinationName.toLowerCase().trim();
+  
+  // Direct match on popular destinations first
+  const directMatch = POPULAR_ACTIVITY_DESTINATIONS.find(d => 
+    d.name.toLowerCase() === searchTerm ||
+    d.code.toLowerCase() === searchTerm
+  );
+  
+  if (directMatch) {
+    return directMatch;
+  }
+  
+  // Partial match
+  const partialMatch = POPULAR_ACTIVITY_DESTINATIONS.find(d =>
+    d.name.toLowerCase().includes(searchTerm) ||
+    searchTerm.includes(d.name.toLowerCase())
+  );
+  
+  if (partialMatch) {
+    return partialMatch;
+  }
+  
+  // No match found - return null, caller should handle
+  return null;
+}
+
+/**
+ * Autocomplete destinations for activities
+ */
+export async function searchDestinationsAutocomplete(query, limit = 8) {
+  const searchTerm = query.toLowerCase().trim();
+  
+  // Search in popular destinations
+  const matches = POPULAR_ACTIVITY_DESTINATIONS.filter(d =>
+    d.name.toLowerCase().includes(searchTerm) ||
+    d.code.toLowerCase().includes(searchTerm)
+  ).slice(0, limit);
+  
+  return matches.map(d => ({
+    code: d.code,
+    name: d.name,
+    country: d.country,
+    displayName: `${d.name}, ${d.country}`
+  }));
+}
+
+// ============================================================================
+// CACHE MANAGEMENT
+// ============================================================================
+
+/**
+ * Clear all caches
+ */
+export function clearAllCaches() {
+  destinationsCache.clear();
+  countriesCache.clear();
+  logger.info('All activity caches cleared');
 }
 
 // ============================================================================
@@ -800,7 +795,22 @@ export async function getActivityDetails(activityCode, startDate, endDate) {
 // ============================================================================
 
 export default {
+  // Search
   searchActivities,
+  searchActivitiesByLocation,
+  searchActivitiesByHotel,
+  
+  // Details
   getActivityDetails,
-  findDestination
+  getActivityContent,
+  getExcursionPickups,
+  
+  // Content
+  fetchCountries,
+  fetchDestinations,
+  
+  // Helpers
+  findDestinationCode,
+  searchDestinationsAutocomplete,
+  clearAllCaches
 };
