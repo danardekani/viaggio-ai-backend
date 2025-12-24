@@ -4,8 +4,6 @@
 // Main Express server that handles:
 // - AI chat conversations via Claude API
 // - Tour search via Viator API
-// - Hotel search via HotelBeds API
-// - Activities search via HotelBeds Activities API
 // - Image identification via Vision AI
 // - Affiliate link tracking
 // - User feedback collection
@@ -17,8 +15,6 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
-import hotelRoutes from './routes/hotels.js';
-import activityRoutes from './routes/activities.js';
 import { warmTourCache } from './services/affiliates/viator.js';
 
 // Import routes
@@ -70,12 +66,6 @@ app.use('/api/', rateLimiter);
 // Get tours from viator
 app.use('/api/tours', tourRoutes);
 
-// Get hotels from hotelbeds
-app.use('/api/hotels', hotelRoutes);
-
-// Get activities from hotelbeds
-app.use('/api/activities', activityRoutes);
-
 // Where is this destination?
 app.use('/api/identify', identifyRoutes);
 
@@ -91,10 +81,10 @@ app.use((req, res, next) => {
 
 // Health check endpoint - used to verify server is running
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
+  res.json({
+    status: 'healthy',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV 
+    environment: process.env.NODE_ENV
   });
 });
 
@@ -105,9 +95,9 @@ app.use('/api/identify', identifyRoutes);   // Where is this endpoint
 
 // Catch-all route for undefined endpoints
 app.use('*', (req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Endpoint not found',
-    path: req.originalUrl 
+    path: req.originalUrl
   });
 });
 
