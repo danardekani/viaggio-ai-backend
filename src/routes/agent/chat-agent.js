@@ -76,6 +76,22 @@ function buildSystemPrompt(currentResults) {
       systemPrompt += `(+ ${currentResults.tours.length - 10} more tours)\n`;
     }
   }
+
+  // If there are HotelBeds activities displayed, add them too
+  if (currentResults && currentResults.activities?.length > 0) {
+    systemPrompt += `\n\n## CURRENTLY DISPLAYED ACTIVITIES\n`;
+    systemPrompt += `The user is viewing HotelBeds activity results:\n\n`;
+    
+    const activitiesToShow = currentResults.activities.slice(0, 10);
+    activitiesToShow.forEach((activity, i) => {
+      const typeLabel = activity.type === 'TICKET' ? '🎫' : '🚌';
+      systemPrompt += `${i + 1}. ${typeLabel} "${activity.name}" - €${activity.price}\n`;
+    });
+    
+    if (currentResults.activities.length > 10) {
+      systemPrompt += `(+ ${currentResults.activities.length - 10} more activities)\n`;
+    }
+  }
   
   return systemPrompt;
 }
@@ -99,7 +115,7 @@ router.post('/chat', async (req, res) => {
     logger.info(`Processing agentic chat request with ${messages.length} messages`);
     
     if (currentResults) {
-      logger.info(`Context includes ${currentResults.tours?.length || 0} tours`);
+      logger.info(`Context includes ${currentResults.tours?.length || 0} tours, ${currentResults.activities?.length || 0} activities`);
     }
 
     // Build context-aware system prompt
@@ -120,10 +136,12 @@ router.post('/chat', async (req, res) => {
     // Track tool usage for this request
     const toolsUsed = [];
     const toursFound = [];
-    let searchDestination = null;  // Track the destination from tour searches
-    let searchDestinationId = null;  // For "See more" navigation
-    let searchTerms = null;  // For "See more" navigation
-    let hasMoreTours = false;  // For "See more" button
+    const activitiesFound = [];
+    let searchDestination = null;
+    let searchDestinationId = null;
+    let searchTerms = null;
+    let hasMoreTours = false;
+    let hasMoreActivities = false;
     let iterations = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -144,10 +162,11 @@ router.post('/chat', async (req, res) => {
         return res.json({
           message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
           tours: toursFound,
+          activities: activitiesFound,
           searchDestination: searchDestination,
           searchDestinationId: searchDestinationId,
           searchTerms: searchTerms,
-          hasMore: hasMoreTours,
+          hasMore: hasMoreTours || hasMoreActivities,
           toolsUsed,
           iterations,
           warning: 'Request timeout - partial response',
@@ -168,7 +187,7 @@ router.post('/chat', async (req, res) => {
         response = await anthropic.messages.create({
           model: MODEL,
           max_tokens: 1024,
-          system: systemPrompt,  // Use context-aware prompt
+          system: systemPrompt,
           tools: agentTools,
           messages: conversationMessages
         });
@@ -176,7 +195,6 @@ router.post('/chat', async (req, res) => {
         const errorMessage = apiError.message || '';
         logger.error('Claude API error:', errorMessage);
         
-        // Check for rate limit error
         if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
           return res.json({
             message: "I'm a bit busy right now! Please wait a moment and try again. 😊",
@@ -217,10 +235,11 @@ router.post('/chat', async (req, res) => {
         return res.json({
           message: finalText,
           tours: toursFound,
+          activities: activitiesFound,
           searchDestination: searchDestination,
           searchDestinationId: searchDestinationId,
           searchTerms: searchTerms,
-          hasMore: hasMoreTours,  // Frontend uses this for "See more" button
+          hasMore: hasMoreTours || hasMoreActivities,
           toolsUsed,
           iterations,
           usage: {
@@ -241,10 +260,9 @@ router.post('/chat', async (req, res) => {
         try {
           const result = await executeTool(toolUse.name, toolUse.input);
           
-          // Collect tours for card display
+          // Collect tours for card display (from Viator)
           if (result.tours && Array.isArray(result.tours)) {
             toursFound.push(...result.tours);
-            // Capture navigation info for "See more" button
             if (result.destination) {
               searchDestination = result.destination;
             }
@@ -256,6 +274,17 @@ router.post('/chat', async (req, res) => {
             }
             if (result.hasMore) {
               hasMoreTours = true;
+            }
+          }
+
+          // Collect activities for card display (from HotelBeds)
+          if (result.activities && Array.isArray(result.activities)) {
+            activitiesFound.push(...result.activities);
+            if (result.destination) {
+              searchDestination = result.destination;
+            }
+            if (result.hasMore) {
+              hasMoreActivities = true;
             }
           }
           
@@ -293,10 +322,11 @@ router.post('/chat', async (req, res) => {
     return res.json({
       message: "Let me summarize what I found so far. Could you try a more specific question?",
       tours: toursFound,
+      activities: activitiesFound,
       searchDestination: searchDestination,
       searchDestinationId: searchDestinationId,
       searchTerms: searchTerms,
-      hasMore: hasMoreTours,
+      hasMore: hasMoreTours || hasMoreActivities,
       toolsUsed,
       iterations,
       warning: 'Maximum iterations reached',
@@ -351,13 +381,15 @@ router.get('/tools', (req, res) => {
 function getToolStatus(toolName) {
   switch (toolName) {
     case 'search_tours':
-    case 'search_hotels':
-      return 'active';
-    case 'search_flights':
-      return 'coming_soon';
+    case 'search_hotelbeds_activities':
+    case 'get_hotelbeds_activity_details':
+    case 'search_activities_near_hotel':
     case 'get_destination_info':
     case 'identify_location':
       return 'active';
+    case 'search_flights':
+    case 'search_hotels':
+      return 'coming_soon';
     default:
       return 'unknown';
   }
