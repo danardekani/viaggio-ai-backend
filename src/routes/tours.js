@@ -1,9 +1,12 @@
 // ============================================================================
-// TOUR ROUTES
+// TOUR ROUTES - Multi-Platform Marketplace
+// ============================================================================
+// Aggregates tours from multiple providers: Viator, HotelBeds Activities
 // ============================================================================
 
 import express from 'express';
 import { searchTours, getTourDetails, findDestination, debugSearchDestinations, searchDestinationsAutocomplete } from '../services/affiliates/viator.js';
+import { searchToursAggregated, getTourDetailsAggregated, getProviders } from '../services/affiliates/tour-aggregator.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -38,8 +41,8 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
 // ============================================================================
 
 /**
- * Search for tours
- * 
+ * Search for tours across multiple platforms
+ *
  * Request body:
  * {
  *   destination: "Boston",           // Required
@@ -53,58 +56,128 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  *   maxPrice: 200,                   // Optional - maximum price in USD
  *   minDuration: 60,                 // Optional - minimum duration in minutes
  *   maxDuration: 240,                // Optional - maximum duration in minutes
- *   minRating: 4                     // Optional - minimum rating (1-5)
+ *   minRating: 4,                    // Optional - minimum rating (1-5)
+ *   providers: ["viator", "hotelbeds"] // Optional - providers to search (default: all)
  * }
- * 
+ *
  * Response:
  * {
- *   tours: [...],                    // Array of tour objects
- *   totalCount: 3038,                // Total available from Viator API
- *   hasMore: true,                   // Whether more results exist beyond fetched
+ *   tours: [...],                    // Array of tour objects with provider field
+ *   totalCount: 3038,                // Total available across all providers
+ *   hasMore: true,                   // Whether more results exist
  *   count: 500,                      // Number of tours returned
- *   searchParams: {...}              // Echo of search parameters
+ *   providers: {...},                // Stats per provider
+ *   searchParams: {...},             // Echo of search parameters
+ *   aggregated: true                 // Indicates multi-platform search
  * }
  */
 router.post('/search', async (req, res, next) => {
   try {
-    const { 
-      destination, 
+    const {
+      destination,
       destinationId,
-      searchTerms = '', 
+      searchTerms = '',
       resultCount = 10,
       sortBy = 'popular',
-      startDate, 
+      startDate,
       endDate,
       flags = [],
       minPrice,
       maxPrice,
       minDuration,
       maxDuration,
-      minRating
+      minRating,
+      providers // Optional: ['viator', 'hotelbeds'] - defaults to all
     } = req.body;
 
     if (!destination) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Missing required field: destination'
       });
     }
 
     // Validate flags if provided
     const validFlags = ['FREE_CANCELLATION', 'SKIP_THE_LINE', 'PRIVATE_TOUR', 'LIKELY_TO_SELL_OUT', 'SPECIAL_OFFER', 'NEW_ON_VIATOR'];
-    const sanitizedFlags = Array.isArray(flags) 
+    const sanitizedFlags = Array.isArray(flags)
       ? flags.filter(f => validFlags.includes(f))
       : [];
 
-    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}`);
+    // Validate providers if provided
+    const validProviders = ['viator', 'hotelbeds'];
+    const selectedProviders = Array.isArray(providers)
+      ? providers.filter(p => validProviders.includes(p))
+      : validProviders; // Default to all providers
 
-    const result = await searchTours({
+    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}, providers=${selectedProviders.join(',')}`);
+
+    // Use single-provider search for backward compatibility when only Viator requested
+    if (selectedProviders.length === 1 && selectedProviders[0] === 'viator') {
+      const result = await searchTours({
+        destination,
+        destinationId,
+        searchTerms,
+        resultCount: Math.min(parseInt(resultCount) || 10, 500),
+        sortBy,
+        startDate,
+        endDate,
+        flags: sanitizedFlags,
+        minPrice: minPrice !== undefined ? parseFloat(minPrice) : undefined,
+        maxPrice: maxPrice !== undefined ? parseFloat(maxPrice) : undefined,
+        minDuration: minDuration !== undefined ? parseInt(minDuration) : undefined,
+        maxDuration: maxDuration !== undefined ? parseInt(maxDuration) : undefined,
+        minRating: minRating !== undefined ? parseFloat(minRating) : undefined
+      });
+
+      // Handle both old format (array) and new format (object with metadata)
+      let tours, totalCount, hasMore;
+
+      if (Array.isArray(result)) {
+        tours = result;
+        totalCount = result.length;
+        hasMore = false;
+      } else {
+        tours = result.tours || [];
+        totalCount = result.totalCount || tours.length;
+        hasMore = result.hasMore || false;
+      }
+
+      logger.info(`Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`);
+
+      return res.json({
+        tours,
+        totalCount,
+        hasMore,
+        count: tours.length,
+        providers: { viator: { count: tours.length, totalCount, hasMore } },
+        searchParams: {
+          destination,
+          destinationId,
+          searchTerms,
+          resultCount,
+          sortBy,
+          startDate,
+          endDate,
+          flags: sanitizedFlags,
+          minPrice,
+          maxPrice,
+          minDuration,
+          maxDuration,
+          minRating,
+          providers: selectedProviders
+        }
+      });
+    }
+
+    // Use aggregated search for multiple providers
+    const result = await searchToursAggregated({
       destination,
       destinationId,
       searchTerms,
-      resultCount: Math.min(parseInt(resultCount) || 10, 500), // Allow up to 500
+      resultCount: Math.min(parseInt(resultCount) || 10, 500),
       sortBy,
       startDate,
       endDate,
+      providers: selectedProviders,
       flags: sanitizedFlags,
       minPrice: minPrice !== undefined ? parseFloat(minPrice) : undefined,
       maxPrice: maxPrice !== undefined ? parseFloat(maxPrice) : undefined,
@@ -113,44 +186,9 @@ router.post('/search', async (req, res, next) => {
       minRating: minRating !== undefined ? parseFloat(minRating) : undefined
     });
 
-    // Handle both old format (array) and new format (object with metadata)
-    let tours, totalCount, hasMore;
-    
-    if (Array.isArray(result)) {
-      // Old format - backward compatibility
-      tours = result;
-      totalCount = result.length;
-      hasMore = false;
-    } else {
-      // New format with metadata
-      tours = result.tours || [];
-      totalCount = result.totalCount || tours.length;
-      hasMore = result.hasMore || false;
-    }
+    logger.info(`Returning ${result.count} tours from ${Object.keys(result.providers).length} providers`);
 
-    logger.info(`Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`);
-
-    res.json({ 
-      tours,
-      totalCount,        // Total available from Viator
-      hasMore,           // Are there more results beyond what we fetched?
-      count: tours.length,
-      searchParams: { 
-        destination, 
-        destinationId,
-        searchTerms, 
-        resultCount, 
-        sortBy,
-        startDate,
-        endDate,
-        flags: sanitizedFlags,
-        minPrice,
-        maxPrice,
-        minDuration,
-        maxDuration,
-        minRating
-      }
-    });
+    res.json(result);
 
   } catch (error) {
     logger.error('Tour search error:', error);
@@ -159,7 +197,16 @@ router.post('/search', async (req, res, next) => {
 });
 
 // ============================================================================
-// GET /api/tours/:productCode
+// GET /api/tours/providers - List available tour providers
+// ============================================================================
+
+router.get('/providers', (req, res) => {
+  const providers = getProviders();
+  res.json({ providers });
+});
+
+// ============================================================================
+// GET /api/tours/:productCode - Get tour details from any provider
 // ============================================================================
 
 router.get('/:productCode', async (req, res, next) => {
@@ -170,7 +217,8 @@ router.get('/:productCode', async (req, res, next) => {
       return res.status(400).json({ error: 'Product code is required' });
     }
 
-    const tour = await getTourDetails(productCode);
+    // Use aggregated details (handles both Viator and HotelBeds)
+    const tour = await getTourDetailsAggregated(productCode);
     res.json({ tour });
 
   } catch (error) {

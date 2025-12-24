@@ -1643,7 +1643,10 @@ function formatTourResult(product) {
     itinerary,
     additionalInfo,
     cancellationPolicy,
-    languages
+    languages,
+    // Provider identification
+    provider: 'viator',
+    providerCode: productCode
   };
 }
 
