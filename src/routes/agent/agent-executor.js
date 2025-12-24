@@ -5,7 +5,8 @@
 // It connects tool calls to real APIs and services.
 // ============================================================================
 
-import { searchTours, searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
+import { searchDestinationsAutocomplete } from '../../services/affiliates/viator.js';
+import { searchToursAggregated } from '../../services/affiliates/tour-aggregator.js';
 // MVP: Hotels disabled for initial launch
 // import { searchHotels } from '../../services/affiliates/hotelbeds.js';
 import { identifyLocation } from '../../services/vision.js';
@@ -58,7 +59,7 @@ export async function executeTool(toolName, toolInput) {
 }
 
 // ==========================================================================
-// SEARCH TOURS - Connected to Viator API
+// SEARCH TOURS - Connected to Viator + HotelBeds APIs (Multi-Platform)
 // ==========================================================================
 
 async function executeSearchTours(input) {
@@ -78,7 +79,7 @@ async function executeSearchTours(input) {
   const CHAT_TOUR_LIMIT = 5;
   const effectiveResultCount = Math.min(result_count || CHAT_TOUR_LIMIT, CHAT_TOUR_LIMIT);
 
-  logger.info(`Searching tours in ${destination}`, { interests, sort_by, start_date, end_date, special_offer, effectiveResultCount });
+  logger.info(`Searching tours in ${destination} (multi-platform)`, { interests, sort_by, start_date, end_date, special_offer, effectiveResultCount });
 
   try {
     // Step 1: Use Viator's autocomplete to find the best matching destination
@@ -104,8 +105,8 @@ async function executeSearchTours(input) {
       logger.info(`Including SPECIAL_OFFER flag for deals search`);
     }
 
-    // Step 2: Search for tours - request a few extra to check if there are more
-    const tours = await searchTours({
+    // Step 2: Search for tours using aggregator (Viator + HotelBeds)
+    const result = await searchToursAggregated({
       destination: searchDestination,
       destinationId: destinationId,
       searchTerms: interests.join(' '),
@@ -115,8 +116,11 @@ async function executeSearchTours(input) {
       maxPrice: max_price,
       minRating: min_rating,
       flags: flags.length > 0 ? flags : undefined,
-      resultCount: effectiveResultCount + 1  // Request 1 extra to check hasMore
+      resultCount: effectiveResultCount + 1,  // Request 1 extra to check hasMore
+      providers: ['viator', 'hotelbeds']  // Search both platforms
     });
+
+    const tours = result.tours || [];
 
     if (!tours || tours.length === 0) {
       return {
@@ -129,7 +133,7 @@ async function executeSearchTours(input) {
     }
 
     // Check if there are more results beyond what we're returning
-    const hasMore = tours.length > effectiveResultCount;
+    const hasMore = tours.length > effectiveResultCount || result.hasMore;
     const toursToReturn = tours.slice(0, effectiveResultCount);
 
     // Check if results are mostly transfers (not actual tours)
@@ -142,7 +146,14 @@ async function executeSearchTours(input) {
     const onlyTransfers = actualTours.length === 0 && toursToReturn.length > 0;
     const mostlyTransfers = actualTours.length < toursToReturn.length / 2 && actualTours.length < 3;
 
-    logger.info(`Found ${tours.length} tours in ${searchDestination}, returning ${toursToReturn.length} (hasMore: ${hasMore})`);
+    // Count providers represented in results
+    const providerCounts = {};
+    for (const tour of toursToReturn) {
+      const provider = tour.provider || 'viator';
+      providerCounts[provider] = (providerCounts[provider] || 0) + 1;
+    }
+
+    logger.info(`Found ${tours.length} tours in ${searchDestination} from ${Object.keys(providerCounts).join(', ')}, returning ${toursToReturn.length} (hasMore: ${hasMore})`);
 
     return {
       success: true,
@@ -154,6 +165,7 @@ async function executeSearchTours(input) {
       hasMore: hasMore,  // Frontend uses this for "See more" button
       sortedBy: sort_by,
       searchTerms: interests.join(' '),  // For "See more" navigation
+      providers: providerCounts,  // Show which providers returned results
       onlyTransfers: onlyTransfers,
       mostlyTransfers: mostlyTransfers,
       suggestion: onlyTransfers
