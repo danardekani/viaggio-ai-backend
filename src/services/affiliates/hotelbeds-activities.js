@@ -20,8 +20,8 @@ const CONTENT_API_BASE = 'https://api.test.hotelbeds.com/activity-content-api/3.
 // const BOOKING_API_BASE = 'https://api.hotelbeds.com/activity-booking-api/1.0';
 // const CONTENT_API_BASE = 'https://api.hotelbeds.com/activity-content-api/3.0';
 
-const API_KEY = process.env.HOTELBEDS_API_KEY;
-const API_SECRET = process.env.HOTELBEDS_API_SECRET;
+const API_KEY = process.env.ACTIVITIES_HOTELBEDS_API_KEY;
+const API_SECRET = process.env.ACTIVITIES_HOTELBEDS_API_SECRET;
 
 // Cache configuration
 const destinationsCache = new Map();
