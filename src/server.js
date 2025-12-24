@@ -21,6 +21,7 @@ import trackingRoutes from './routes/tracking.js';
 import feedbackRoutes from './routes/feedback.js';
 import identifyRoutes from './routes/identify.js';
 import agentRoutes from './routes/agent/chat-agent.js';
+import activityRoutes from './routes/activities.js';
 
 // Import middleware
 import { corsConfig } from './middleware/cors.js';
@@ -67,6 +68,9 @@ app.use('/api/tours', tourRoutes);
 
 // Get hotels from hotelbeds
 app.use('/api/hotels', hotelRoutes)
+
+// Get hotels from hotelbeds
+app.use('/api/activities', activityRoutes);
 
 // Where is this destination?
 app.use('/api/identify', identifyRoutes);
