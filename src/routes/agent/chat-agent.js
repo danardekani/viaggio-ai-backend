@@ -77,22 +77,6 @@ function buildSystemPrompt(currentResults) {
     }
   }
 
-  // If there are HotelBeds activities displayed, add them too
-  if (currentResults && currentResults.activities?.length > 0) {
-    systemPrompt += `\n\n## CURRENTLY DISPLAYED ACTIVITIES\n`;
-    systemPrompt += `The user is viewing HotelBeds activity results:\n\n`;
-    
-    const activitiesToShow = currentResults.activities.slice(0, 10);
-    activitiesToShow.forEach((activity, i) => {
-      const typeLabel = activity.type === 'TICKET' ? '🎫' : '🚌';
-      systemPrompt += `${i + 1}. ${typeLabel} "${activity.name}" - €${activity.price}\n`;
-    });
-    
-    if (currentResults.activities.length > 10) {
-      systemPrompt += `(+ ${currentResults.activities.length - 10} more activities)\n`;
-    }
-  }
-  
   return systemPrompt;
 }
 
@@ -381,9 +365,6 @@ router.get('/tools', (req, res) => {
 function getToolStatus(toolName) {
   switch (toolName) {
     case 'search_tours':
-    case 'search_hotelbeds_activities':
-    case 'get_hotelbeds_activity_details':
-    case 'search_activities_near_hotel':
     case 'get_destination_info':
     case 'identify_location':
       return 'active';
