@@ -1,8 +1,12 @@
 // ============================================================================
-// VIAGGIO.AI BACKEND SERVER //
+// VIAGGIO.AI BACKEND SERVER
 // ============================================================================
 // Main Express server that handles:
 // - AI chat conversations via Claude API
+// - Tour search via Viator API
+// - Hotel search via HotelBeds API
+// - Activities search via HotelBeds Activities API
+// - Image identification via Vision AI
 // - Affiliate link tracking
 // - User feedback collection
 // ============================================================================
@@ -14,6 +18,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
 import hotelRoutes from './routes/hotels.js';
+import activityRoutes from './routes/activities.js';
 import { warmTourCache } from './services/affiliates/viator.js';
 
 // Import routes
@@ -21,7 +26,6 @@ import trackingRoutes from './routes/tracking.js';
 import feedbackRoutes from './routes/feedback.js';
 import identifyRoutes from './routes/identify.js';
 import agentRoutes from './routes/agent/chat-agent.js';
-import activityRoutes from './routes/activities.js';
 
 // Import middleware
 import { corsConfig } from './middleware/cors.js';
@@ -54,7 +58,7 @@ app.set('trust proxy', 1);
 // Parse JSON request bodies
 app.use(express.json({ limit: '50mb'}));
 
-// Agentic AI route
+// Agentic AI route (before CORS to use its own CORS handling)
 app.use('/api/agent', agentRoutes);
 
 // Enable CORS for frontend communication
@@ -67,9 +71,9 @@ app.use('/api/', rateLimiter);
 app.use('/api/tours', tourRoutes);
 
 // Get hotels from hotelbeds
-app.use('/api/hotels', hotelRoutes)
+app.use('/api/hotels', hotelRoutes);
 
-// Get hotels from hotelbeds
+// Get activities from hotelbeds
 app.use('/api/activities', activityRoutes);
 
 // Where is this destination?
