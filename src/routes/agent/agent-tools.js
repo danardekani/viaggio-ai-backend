@@ -7,7 +7,7 @@
 
 export const agentTools = [
   // ==========================================================================
-  // TOUR SEARCH TOOL (Active - uses Viator API)
+  // TOUR SEARCH TOOL  (Viator API)
   // ==========================================================================
   {
     name: 'search_tours',
@@ -69,47 +69,141 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
   },
 
   // ==========================================================================
-  // FLIGHT SEARCH TOOL - MVP DISABLED
+  // HOTELBEDS ACTIVITIES SEARCH TOOL
   // ==========================================================================
-  /* MVP: Flights disabled for initial launch
   {
-    name: 'search_flights',
-    description: `Search for flights between two cities. NOTE: This tool is not yet connected to a live API.`,
+    name: 'search_hotelbeds_activities',
+    description: `Search for activities, tickets, and excursions from HotelBeds.
+
+Use this tool when the user wants to:
+- Find tickets to attractions (museums, theme parks, shows)
+- Look for guided excursions with transport/pickup
+- Find activities in European destinations (strong inventory in Barcelona, Rome, Paris, London)
+- Get an alternative to Viator results
+- Search for activities when dates are specified
+
+This returns tickets and excursions from HotelBeds, which has different inventory than Viator - especially strong in Europe.
+Note: Requires dates (from/to) to check availability.`,
     input_schema: {
       type: 'object',
       properties: {
-        origin: { type: 'string', description: 'Departure city or airport code' },
-        destination: { type: 'string', description: 'Arrival city or airport code' },
-        departure_date: { type: 'string', description: 'Departure date in YYYY-MM-DD format' },
-        return_date: { type: 'string', description: 'Return date (optional for one-way)' },
-        passengers: { type: 'number', description: 'Number of passengers (default: 1)' },
-        cabin_class: { type: 'string', enum: ['economy', 'premium_economy', 'business', 'first'] }
+        destination: {
+          type: 'string',
+          description: 'City name (e.g., "Barcelona", "Rome", "Paris", "London")'
+        },
+        destination_code: {
+          type: 'string',
+          description: 'Optional: HotelBeds destination code if known (e.g., "BCN", "ROM", "PAR")'
+        },
+        from: {
+          type: 'string',
+          description: 'Start date in YYYY-MM-DD format (required)'
+        },
+        to: {
+          type: 'string',
+          description: 'End date in YYYY-MM-DD format (required)'
+        },
+        adults: {
+          type: 'number',
+          description: 'Number of adults (default: 2)'
+        },
+        children: {
+          type: 'number',
+          description: 'Number of children (default: 0)'
+        },
+        children_ages: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Ages of children if any (e.g., [10, 8])'
+        },
+        result_count: {
+          type: 'number',
+          description: 'Number of results to return (default: 5, max: 20)'
+        }
       },
-      required: ['origin', 'destination', 'departure_date']
+      required: ['destination', 'from', 'to']
     }
   },
-  */
 
   // ==========================================================================
-  // HOTEL SEARCH TOOL - MVP DISABLED
+  // HOTELBEDS ACTIVITY DETAILS TOOL
   // ==========================================================================
-  /* MVP: Hotels disabled for initial launch
   {
-    name: 'search_hotels',
-    description: `Search for hotels and accommodations using HotelBeds API.`,
+    name: 'get_hotelbeds_activity_details',
+    description: `Get detailed information about a specific HotelBeds activity.
+
+Use this tool when the user wants to:
+- Learn more about a specific activity from the results
+- See what's included/excluded
+- Find out about meeting points or pickup info
+- Check cancellation policies
+- View all available time slots`,
     input_schema: {
       type: 'object',
       properties: {
-        destination: { type: 'string', description: 'Full city name' },
-        check_in: { type: 'string', description: 'Check-in date YYYY-MM-DD' },
-        check_out: { type: 'string', description: 'Check-out date YYYY-MM-DD' },
-        guests: { type: 'number', description: 'Number of guests (default: 2)' },
-        rooms: { type: 'number', description: 'Number of rooms (default: 1)' }
+        activity_code: {
+          type: 'string',
+          description: 'The HotelBeds activity code (e.g., "E-E10-SAGRADA")'
+        },
+        from: {
+          type: 'string',
+          description: 'Start date in YYYY-MM-DD format'
+        },
+        to: {
+          type: 'string',
+          description: 'End date in YYYY-MM-DD format'
+        },
+        adults: {
+          type: 'number',
+          description: 'Number of adults (default: 2)'
+        },
+        full_details: {
+          type: 'boolean',
+          description: 'Whether to fetch complete details including all modalities (default: false)'
+        }
       },
-      required: ['destination', 'check_in', 'check_out']
+      required: ['activity_code', 'from', 'to']
     }
   },
-  */
+
+  // ==========================================================================
+  // SEARCH ACTIVITIES NEAR HOTEL TOOL
+  // ==========================================================================
+  {
+    name: 'search_activities_near_hotel',
+    description: `Search for activities near a specific hotel.
+
+Use this tool when the user:
+- Is staying at a specific hotel and wants nearby activities
+- Mentions their hotel by code
+- Wants activities convenient to their accommodation`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        hotel_code: {
+          type: 'string',
+          description: 'The HotelBeds hotel code'
+        },
+        from: {
+          type: 'string',
+          description: 'Start date in YYYY-MM-DD format'
+        },
+        to: {
+          type: 'string',
+          description: 'End date in YYYY-MM-DD format'
+        },
+        adults: {
+          type: 'number',
+          description: 'Number of adults (default: 2)'
+        },
+        result_count: {
+          type: 'number',
+          description: 'Number of results (default: 5)'
+        }
+      },
+      required: ['hotel_code', 'from', 'to']
+    }
+  },
 
   // ==========================================================================
   // DESTINATION INFO TOOL (Uses Claude's knowledge)
@@ -117,7 +211,7 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
   {
     name: 'get_destination_info',
     description: `Get information about a travel destination including best time to visit, local tips, neighborhoods, and travel advice.
-    
+
 Use this tool when the user wants to:
 - Learn about a destination before booking
 - Get tips for visiting a place
@@ -180,22 +274,30 @@ NOTE: This requires an image URL or base64 data to be provided.`,
 export const travelAgentSystemPrompt = `You are Via, the friendly travel expert for Viaggio.ai. You help users find amazing tours, activities, and experiences.
 
 ## YOUR SPECIALTY
-Tours and experiences ONLY. No hotels or flights.
+Tours, activities, tickets, and experiences. No hotels or flights yet.
 
 ## WHEN TO SEARCH vs ANSWER
-SEARCH when users say: "find", "search", "book", "show me", "look up", "deals", "what tours"
+SEARCH when users say: "find", "search", "book", "show me", "look up", "deals", "what tours", "tickets", "activities"
 ANSWER (no search) when users say: "what should I see", "tell me about", "best time to visit"
 
 For general questions, share knowledge then offer: "Would you like me to find some bookable tours?"
 
-## DEALS REQUESTS
-When users ask for "deals", "discounts", "sales": search with special_offer: true
+## CHOOSING BETWEEN VIATOR AND HOTELBEDS
+- Use search_tours (Viator) for: guided tours, food tours, walking tours, day trips, experiences
+- Use search_hotelbeds_activities for: attraction tickets, museum entries, theme parks, excursions with transport
+- If user specifies dates and wants tickets/entries: prefer HotelBeds
+- If user wants tours/experiences without specific dates: prefer Viator
+- For European destinations (Barcelona, Rome, Paris): HotelBeds often has great ticket inventory
 
-## TOUR RESULTS - CRITICAL
-- ALWAYS use result_count: 5 (exactly 5 tours)
-- The frontend displays tour cards with a "See more" button automatically
+## DEALS REQUESTS
+When users ask for "deals", "discounts", "sales": search with special_offer: true (Viator only)
+
+## TOUR/ACTIVITY RESULTS - CRITICAL
+- ALWAYS use result_count: 5 (exactly 5 results)
+- The frontend displays cards with a "See more" button automatically
 - Your job is to briefly introduce the results, NOT list them
-- After searching: write 1-2 sentences like "I found some great food tours in Rome! Here are 5 top picks."
+- After searching: write 1-2 sentences like "I found some great options in Rome! Here are 5 top picks."
+- For HotelBeds results: mention if they're tickets vs excursions
 
 ## FORMATTING RULES - CRITICAL
 1. NEVER use markdown (**bold**, *italic*, - bullets, # headers)
@@ -205,7 +307,10 @@ When users ask for "deals", "discounts", "sales": search with special_offer: tru
 5. For info questions: 2-3 short paragraphs, then offer to search
 
 ## Tools
-- search_tours: Find bookable tours (use special_offer:true for deals)
+- search_tours: Find bookable tours via Viator (use special_offer:true for deals)
+- search_hotelbeds_activities: Find tickets and excursions via HotelBeds (requires dates)
+- get_hotelbeds_activity_details: Get full details on a HotelBeds activity
+- search_activities_near_hotel: Find activities near a specific hotel
 - get_destination_info: Travel tips and advice
 
 Be helpful, natural, and concise.`;
