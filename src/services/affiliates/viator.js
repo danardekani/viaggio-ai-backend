@@ -2224,7 +2224,7 @@ export async function getAttractionDetails(attractionId) {
  * @param {object} options - Search options
  * @returns {Promise<object>} List of tours
  */
-export async function searchToursByAttraction(attractionSeoId, options = {}) {
+export async function searchToursByAttraction(attractionSeoId, destinationId, options = {}) {
   const {
     start = 1,
     count = 50,
@@ -2248,6 +2248,7 @@ export async function searchToursByAttraction(attractionSeoId, options = {}) {
 
   const body = {
     filtering: {
+      destination: parseInt(destinationId),
       attractionId: parseInt(attractionSeoId)
     },
     sorting: viatorSort,
