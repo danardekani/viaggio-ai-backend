@@ -3,7 +3,17 @@
 // ============================================================================
 
 import express from 'express';
-import { searchTours, getTourDetails, findDestination, debugSearchDestinations, searchDestinationsAutocomplete } from '../services/affiliates/viator.js';
+import {
+  searchTours,
+  getTourDetails,
+  findDestination,
+  debugSearchDestinations,
+  searchDestinationsAutocomplete,
+  searchAttractions,
+  getAttractionDetails,
+  searchToursByAttraction,
+  combinedAutocomplete
+} from '../services/affiliates/viator.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -155,6 +165,104 @@ router.post('/search', async (req, res, next) => {
   } catch (error) {
     logger.error('Tour search error:', error);
     next(error);
+  }
+});
+
+// ============================================================================
+// ATTRACTIONS/LANDMARKS ROUTES
+// ============================================================================
+
+// GET /api/tours/attractions - Get attractions/landmarks for a destination
+router.get('/attractions', async (req, res, next) => {
+  try {
+    const { destinationId, sort = 'DEFAULT', start = 1, count = 30 } = req.query;
+
+    if (!destinationId) {
+      return res.status(400).json({
+        error: 'destinationId is required',
+        example: '/api/tours/attractions?destinationId=684'
+      });
+    }
+
+    const result = await searchAttractions(parseInt(destinationId), {
+      sort,
+      start: parseInt(start),
+      count: Math.min(parseInt(count), 30)
+    });
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Attractions search error:', error);
+    next(error);
+  }
+});
+
+// GET /api/tours/attractions/:seoId/tours - Get tours for a specific attraction
+router.get('/attractions/:seoId/tours', async (req, res, next) => {
+  try {
+    const { seoId } = req.params;
+    const {
+      start = 1,
+      count = 50,
+      sortBy = 'popular',
+      flags,
+      minPrice,
+      maxPrice,
+      minRating
+    } = req.query;
+
+    if (!seoId || isNaN(parseInt(seoId))) {
+      return res.status(400).json({ error: 'Valid seoId is required' });
+    }
+
+    const result = await searchToursByAttraction(parseInt(seoId), {
+      start: parseInt(start),
+      count: Math.min(parseInt(count), 50),
+      sortBy,
+      flags: flags ? flags.split(',') : [],
+      minPrice: minPrice ? parseFloat(minPrice) : undefined,
+      maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+      minRating: minRating ? parseFloat(minRating) : undefined
+    });
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Tours by attraction error:', error);
+    next(error);
+  }
+});
+
+// GET /api/tours/attractions/:attractionId - Get details for a specific attraction
+router.get('/attractions/:attractionId', async (req, res, next) => {
+  try {
+    const { attractionId } = req.params;
+
+    if (!attractionId || isNaN(parseInt(attractionId))) {
+      return res.status(400).json({ error: 'Valid attractionId is required' });
+    }
+
+    const details = await getAttractionDetails(parseInt(attractionId));
+    res.json(details);
+  } catch (error) {
+    logger.error('Attraction details error:', error);
+    next(error);
+  }
+});
+
+// GET /api/tours/autocomplete/combined - Combined autocomplete for destinations AND attractions
+router.get('/autocomplete/combined', async (req, res, next) => {
+  try {
+    const { q, limit = 8 } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.json({ destinations: [], attractions: [] });
+    }
+
+    const result = await combinedAutocomplete(q, parseInt(limit));
+    res.json(result);
+  } catch (error) {
+    logger.error('Combined autocomplete error:', error);
+    res.json({ destinations: [], attractions: [] });
   }
 });
 
