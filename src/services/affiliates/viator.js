@@ -117,6 +117,10 @@ const tourSearchCache = new Map();
 const TOUR_CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache for tour results
 const MAX_TOUR_CACHE_ENTRIES = 50; // Limit cache size to prevent memory issues
 
+// PERFORMANCE: Cache for attractions by destination
+const attractionsCache = new Map();
+const ATTRACTIONS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
 // Clear cache function (for debugging)
 export function clearDestinationCache() {
   destinationsCache = null;
@@ -154,6 +158,20 @@ function cacheTourSearch(cacheKey, tours) {
   }
   tourSearchCache.set(cacheKey, { tours, timestamp: Date.now() });
   logger.info(`Tour cache STORE for ${cacheKey} (${tours.length} tours)`);
+}
+
+// Get cached attractions for a destination
+function getCachedAttractions(destinationId) {
+  const cached = attractionsCache.get(destinationId);
+  if (cached && Date.now() - cached.timestamp < ATTRACTIONS_CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+// Store attractions in cache
+function setCachedAttractions(destinationId, data) {
+  attractionsCache.set(destinationId, { data, timestamp: Date.now() });
 }
 
 // Get cached destination Map (creates it once, reuses afterwards)
@@ -2061,6 +2079,287 @@ export async function warmTourCache() {
 }
 
 // ============================================================================
+// ATTRACTIONS/LANDMARKS FUNCTIONS
+// ============================================================================
+
+/**
+ * Search for attractions/landmarks in a destination
+ * @param {number} destinationId - Viator destination ID
+ * @param {object} options - Search options
+ * @returns {Promise<object>} List of attractions with metadata
+ */
+export async function searchAttractions(destinationId, options = {}) {
+  const {
+    sort = 'DEFAULT', // 'DEFAULT', 'ALPHABETICAL', 'REVIEW_AVG_RATING'
+    start = 1,
+    count = 30
+  } = options;
+
+  // Check cache for first page
+  if (start === 1 && sort === 'DEFAULT') {
+    const cached = getCachedAttractions(destinationId);
+    if (cached) {
+      logger.info(`Returning cached attractions for destination ${destinationId}`);
+      return cached;
+    }
+  }
+
+  logger.info(`Searching attractions for destination: ${destinationId}`);
+
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/attractions/search`, {
+    method: 'POST',
+    headers: {
+      'exp-api-key': API_KEY,
+      'Accept': 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      destinationId: parseInt(destinationId),
+      sorting: { sort },
+      pagination: { start, count }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error(`Attractions search error: ${response.status} - ${errorText}`);
+    throw new Error(`Viator attractions API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  const attractions = (data.attractions || []).map(attr => {
+    // Get best image URL
+    let imageUrl = null;
+    if (attr.images && attr.images.length > 0) {
+      const variants = attr.images[0].variants || [];
+      const preferred = variants.find(v => v.width >= 300 && v.width <= 600);
+      imageUrl = preferred?.url || variants[0]?.url || null;
+    }
+
+    return {
+      attractionId: attr.attractionId,
+      seoId: attr.seoId,
+      name: attr.name,
+      destinationId: attr.destinations?.[0]?.ref || destinationId,
+      destinationName: attr.destinationName || null,
+      productCount: attr.productsCount || attr.productCount || 0,
+      rating: attr.reviews?.combinedAverageRating || null,
+      reviewCount: attr.reviews?.totalReviews || 0,
+      image: imageUrl
+    };
+  });
+
+  const result = {
+    attractions,
+    totalCount: data.totalCount || attractions.length,
+    hasMore: (start + count - 1) < (data.totalCount || 0)
+  };
+
+  // Cache first page
+  if (start === 1 && sort === 'DEFAULT') {
+    setCachedAttractions(destinationId, result);
+  }
+
+  logger.info(`Found ${attractions.length} attractions (total: ${data.totalCount})`);
+  return result;
+}
+
+/**
+ * Get detailed information about a specific attraction
+ * @param {number} attractionId - The attraction ID
+ * @returns {Promise<object>} Attraction details
+ */
+export async function getAttractionDetails(attractionId) {
+  logger.info(`Fetching attraction details: ${attractionId}`);
+
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/attractions/${attractionId}`, {
+    method: 'GET',
+    headers: {
+      'exp-api-key': API_KEY,
+      'Accept': 'application/json;version=2.0',
+      'Accept-Language': 'en-US'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Viator attraction API error: ${response.status}`);
+  }
+
+  const attr = await response.json();
+
+  const images = (attr.images || []).map(img => {
+    const variants = img.variants || [];
+    return {
+      small: variants.find(v => v.width >= 200 && v.width < 400)?.url || variants[0]?.url,
+      medium: variants.find(v => v.width >= 400 && v.width < 800)?.url || variants[0]?.url,
+      large: variants.find(v => v.width >= 800)?.url || variants[0]?.url,
+      caption: img.caption
+    };
+  }).filter(img => img.small || img.medium || img.large);
+
+  return {
+    attractionId: attr.attractionId,
+    seoId: attr.seoId,
+    name: attr.name,
+    description: attr.overview || null,
+    destinationName: attr.destinationName,
+    productCount: attr.productsCount || 0,
+    rating: attr.reviews?.combinedAverageRating || null,
+    reviewCount: attr.reviews?.totalReviews || 0,
+    image: images[0]?.medium || images[0]?.large || null,
+    images,
+    address: attr.address || null,
+    location: attr.center ? {
+      latitude: attr.center.latitude,
+      longitude: attr.center.longitude
+    } : null
+  };
+}
+
+/**
+ * Search tours by attraction/landmark using seoId
+ * @param {number} attractionSeoId - The seoId from attractions search
+ * @param {object} options - Search options
+ * @returns {Promise<object>} List of tours
+ */
+export async function searchToursByAttraction(attractionSeoId, options = {}) {
+  const {
+    start = 1,
+    count = 50,
+    sortBy = 'popular',
+    flags = [],
+    minPrice,
+    maxPrice,
+    minRating
+  } = options;
+
+  logger.info(`Searching tours for attraction seoId: ${attractionSeoId}`);
+
+  // Map sortBy to Viator sort
+  const viatorSort = {
+    popular: { sort: 'DEFAULT' },
+    price_low: { sort: 'PRICE', order: 'ASCENDING' },
+    price_high: { sort: 'PRICE', order: 'DESCENDING' },
+    rating: { sort: 'REVIEW_AVG_RATING' },
+    newest: { sort: 'DATE_ADDED', order: 'DESCENDING' }
+  }[sortBy] || { sort: 'DEFAULT' };
+
+  const body = {
+    filtering: {
+      attractionId: parseInt(attractionSeoId)
+    },
+    sorting: viatorSort,
+    pagination: { start, count },
+    currency: 'USD'
+  };
+
+  if (flags.length > 0) body.filtering.flags = flags;
+  if (minPrice !== undefined) body.filtering.lowestPrice = parseFloat(minPrice);
+  if (maxPrice !== undefined) body.filtering.highestPrice = parseFloat(maxPrice);
+  if (minRating !== undefined) body.filtering.rating = { from: parseFloat(minRating) };
+
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
+    method: 'POST',
+    headers: {
+      'exp-api-key': API_KEY,
+      'Accept': 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error(`Tour search by attraction error: ${response.status} - ${errorText}`);
+    throw new Error(`Viator API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // Use existing formatTourResult function
+  const tours = (data.products || []).map(p => formatTourResult(p));
+
+  logger.info(`Found ${tours.length} tours for attraction ${attractionSeoId}`);
+
+  return {
+    tours,
+    totalCount: data.totalCount || tours.length,
+    hasMore: (start + count - 1) < (data.totalCount || 0)
+  };
+}
+
+/**
+ * Combined autocomplete for both destinations and attractions
+ * @param {string} searchTerm - The search term
+ * @param {number} limit - Max results per type
+ * @returns {Promise<object>} { destinations, attractions }
+ */
+export async function combinedAutocomplete(searchTerm, limit = 8) {
+  if (!searchTerm || searchTerm.length < 2) {
+    return { destinations: [], attractions: [] };
+  }
+
+  logger.info(`Combined autocomplete for: "${searchTerm}"`);
+
+  const response = await fetchWithTimeout(`${VIATOR_API_BASE}/search/freetext`, {
+    method: 'POST',
+    headers: {
+      'exp-api-key': API_KEY,
+      'Accept': 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      searchTerm: searchTerm,
+      searchTypes: [
+        { searchType: 'DESTINATIONS', pagination: { start: 1, count: limit } },
+        { searchType: 'ATTRACTIONS', pagination: { start: 1, count: limit } }
+      ],
+      currency: 'USD'
+    })
+  });
+
+  if (!response.ok) {
+    logger.warn(`Combined autocomplete failed: ${response.status}`);
+    return { destinations: [], attractions: [] };
+  }
+
+  const data = await response.json();
+
+  // Transform destinations
+  const destinations = (data.destinations?.results || []).map(d => ({
+    destinationId: (d.id || d.destinationId)?.toString(),
+    name: d.name || d.destinationName,
+    type: d.type || 'DESTINATION',
+    parentName: d.parentDestinationName || null,
+    displayName: d.parentDestinationName
+      ? `${d.name}, ${d.parentDestinationName}`
+      : d.name,
+    resultType: 'destination'
+  }));
+
+  // Transform attractions
+  const attractions = (data.attractions?.results || []).map(attr => ({
+    attractionId: attr.attractionId,
+    seoId: attr.seoId,
+    name: attr.name,
+    destinationName: attr.destinationName || null,
+    productCount: attr.productsCount || 0,
+    displayName: attr.destinationName
+      ? `${attr.name}, ${attr.destinationName}`
+      : attr.name,
+    resultType: 'attraction'
+  }));
+
+  logger.info(`Combined autocomplete: ${destinations.length} destinations, ${attractions.length} attractions`);
+
+  return { destinations, attractions };
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -2072,5 +2371,9 @@ export default {
   findDestination,
   fetchDestinations,
   debugSearchDestinations,
-  searchDestinationsAutocomplete
+  searchDestinationsAutocomplete,
+  searchAttractions,
+  getAttractionDetails,
+  searchToursByAttraction,
+  combinedAutocomplete
 };
