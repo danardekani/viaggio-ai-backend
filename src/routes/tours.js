@@ -208,15 +208,15 @@ router.get('/attractions/:seoId/tours', async (req, res, next) => {
       flags,
       minPrice,
       maxPrice,
-      minRating
+      minRating,
+      destinationId
     } = req.query;
 
     if (!seoId || isNaN(parseInt(seoId))) {
       return res.status(400).json({ error: 'Valid seoId is required' });
     }
 
-    const result = await searchToursByAttraction(parseInt(seoId),parseInt(destinationId)) 
-    {
+    const result = await searchToursByAttraction(parseInt(seoId), parseInt(destinationId), {
       start: parseInt(start),
       count: Math.min(parseInt(count), 50),
       sortBy,
