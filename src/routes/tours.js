@@ -197,10 +197,10 @@ router.get('/attractions', async (req, res, next) => {
   }
 });
 
-// GET /api/tours/attractions/:seoId/tours - Get tours for a specific attraction
-router.get('/attractions/:seoId/tours', async (req, res, next) => {
+// GET /api/tours/attractions/:attractionId/tours - Get tours for a specific attraction
+router.get('/attractions/:attractionId/tours', async (req, res, next) => {
   try {
-    const { seoId } = req.params;
+    const { attractionId } = req.params;
     const {
       start = 1,
       count = 50,
@@ -212,11 +212,11 @@ router.get('/attractions/:seoId/tours', async (req, res, next) => {
       destinationId
     } = req.query;
 
-    if (!seoId || isNaN(parseInt(seoId))) {
-      return res.status(400).json({ error: 'Valid seoId is required' });
+    if (!attractionId || isNaN(parseInt(attractionId))) {
+      return res.status(400).json({ error: 'Valid attractionId is required' });
     }
 
-    const result = await searchToursByAttraction(parseInt(seoId), parseInt(destinationId), {
+    const result = await searchToursByAttraction(parseInt(attractionId), parseInt(destinationId), {
       start: parseInt(start),
       count: Math.min(parseInt(count), 50),
       sortBy,

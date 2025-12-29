@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
 const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
-const FETCH_TIMEOUT_MS = 15000; // 15 second timeout for API calls
+const FETCH_TIMEOUT_MS = 30000; // 30 second timeout for API calls (sandbox API can be slow)
 
 /**
  * Fetch with timeout to prevent hanging requests
@@ -2056,7 +2056,7 @@ export async function warmTourCache() {
       await searchTours({
         destination: dest.name,
         destinationId: dest.id?.toString(),
-        resultCount: 100, // Cache a good amount for browsing
+        resultCount: 30, // Smaller count for faster warming; users can fetch more on demand
         sortBy: 'popular'
       });
 
@@ -2224,7 +2224,7 @@ export async function getAttractionDetails(attractionId) {
  * @param {object} options - Search options
  * @returns {Promise<object>} List of tours
  */
-export async function searchToursByAttraction(attractionSeoId, destinationId, options = {}) {
+export async function searchToursByAttraction(attractionId, destinationId, options = {}) {
   const {
     start = 1,
     count = 50,
@@ -2235,7 +2235,7 @@ export async function searchToursByAttraction(attractionSeoId, destinationId, op
     minRating
   } = options;
 
-  logger.info(`Searching tours for attraction seoId: ${attractionSeoId}`);
+  logger.info(`Searching tours for attractionId: ${attractionId}, destinationId: ${destinationId}`);
 
   // Map sortBy to Viator sort
   const viatorSort = {
@@ -2249,7 +2249,7 @@ export async function searchToursByAttraction(attractionSeoId, destinationId, op
   const body = {
     filtering: {
       destination: parseInt(destinationId),
-      attractionId: parseInt(attractionSeoId)
+      attractionId: parseInt(attractionId)
     },
     sorting: viatorSort,
     pagination: { start, count },
@@ -2283,7 +2283,7 @@ export async function searchToursByAttraction(attractionSeoId, destinationId, op
   // Use existing formatTourResult function
   const tours = (data.products || []).map(p => formatTourResult(p));
 
-  logger.info(`Found ${tours.length} tours for attraction ${attractionSeoId}`);
+  logger.info(`Found ${tours.length} tours for attractionId ${attractionId}`);
 
   return {
     tours,
