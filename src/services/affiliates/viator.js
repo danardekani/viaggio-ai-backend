@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
 const AFFILIATE_ID = process.env.VIATOR_AFFILIATE_ID;
-const FETCH_TIMEOUT_MS = 15000; // 15 second timeout for API calls
+const FETCH_TIMEOUT_MS = 30000; // 30 second timeout for API calls (sandbox API can be slow)
 
 /**
  * Fetch with timeout to prevent hanging requests
@@ -2056,7 +2056,7 @@ export async function warmTourCache() {
       await searchTours({
         destination: dest.name,
         destinationId: dest.id?.toString(),
-        resultCount: 100, // Cache a good amount for browsing
+        resultCount: 30, // Smaller count for faster warming; users can fetch more on demand
         sortBy: 'popular'
       });
 
