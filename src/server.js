@@ -15,7 +15,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import tourRoutes from './routes/tours.js';
-import { warmTourCache } from './services/affiliates/viator.js';
+import { warmTourCache, searchDestinationsAutocomplete } from './services/affiliates/viator.js';
 
 // Import routes
 import trackingRoutes from './routes/tracking.js';
@@ -92,6 +92,25 @@ app.get('/health', (req, res) => {
 app.use('/api/tracking', trackingRoutes);   // Affiliate tracking endpoint
 app.use('/api/feedback', feedbackRoutes);   // User feedback endpoint
 app.use('/api/identify', identifyRoutes);   // Where is this endpoint
+
+// Alias for /api/destinations/autocomplete (frontend compatibility)
+// The canonical endpoint is /api/tours/destinations/autocomplete
+app.get('/api/destinations/autocomplete', async (req, res) => {
+  try {
+    const query = req.query.query || req.query.q;
+    const limit = parseInt(req.query.limit) || 8;
+
+    if (!query || query.length < 2) {
+      return res.json({ suggestions: [] });
+    }
+
+    const suggestions = await searchDestinationsAutocomplete(query, limit);
+    res.json({ suggestions, query });
+  } catch (error) {
+    logger.error('Destinations autocomplete error:', error);
+    res.json({ suggestions: [], error: 'Search failed' });
+  }
+});
 
 // Catch-all route for undefined endpoints
 app.use('*', (req, res) => {
