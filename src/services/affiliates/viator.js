@@ -2224,7 +2224,7 @@ export async function getAttractionDetails(attractionId) {
  * @param {object} options - Search options
  * @returns {Promise<object>} List of tours
  */
-export async function searchToursByAttraction(attractionId, destinationId, options = {}) {
+export async function searchToursByAttraction(seoId, destinationId, options = {}) {
   const {
     start = 1,
     count = 50,
@@ -2235,7 +2235,7 @@ export async function searchToursByAttraction(attractionId, destinationId, optio
     minRating
   } = options;
 
-  logger.info(`Searching tours for attractionId: ${attractionId}, destinationId: ${destinationId}`);
+  logger.info(`Searching tours for attraction seoId: ${seoId}, destinationId: ${destinationId}`);
 
   // Map sortBy to Viator sort
   const viatorSort = {
@@ -2249,7 +2249,7 @@ export async function searchToursByAttraction(attractionId, destinationId, optio
   const body = {
     filtering: {
       destination: parseInt(destinationId),
-      attractionId: parseInt(attractionId)
+      seoId: parseInt(seoId)  // Viator API expects seoId, not attractionId
     },
     sorting: viatorSort,
     pagination: { start, count },
@@ -2283,7 +2283,7 @@ export async function searchToursByAttraction(attractionId, destinationId, optio
   // Use existing formatTourResult function
   const tours = (data.products || []).map(p => formatTourResult(p));
 
-  logger.info(`Found ${tours.length} tours for attractionId ${attractionId}`);
+  logger.info(`Found ${tours.length} tours for seoId ${seoId}`);
 
   return {
     tours,
