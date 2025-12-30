@@ -100,11 +100,12 @@ router.post('/search', async (req, res, next) => {
     }
 
     // Validate flags if provided
-    const validFlags = ['FREE_CANCELLATION', 'SKIP_THE_LINE', 'PRIVATE_TOUR', 'LIKELY_TO_SELL_OUT', 'SPECIAL_OFFER', 'NEW_ON_VIATOR'];
+    const validFlags = ['FREE_CANCELLATION', 'SKIP_THE_LINE', 'PRIVATE_TOUR', 'LIKELY_TO_SELL_OUT', 'SPECIAL_OFFER', 'NEW_ON_VIATOR', 'KID_FRIENDLY'];
     const sanitizedFlags = Array.isArray(flags)
       ? flags.filter(f => validFlags.includes(f))
       : [];
 
+    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}${sanitizedFlags.length > 0 ? `, flags=[${sanitizedFlags.join(',')}]` : ''}`);
     // Cap requested count to reasonable limit
     const requestedCount = Math.min(parseInt(resultCount) || 50, 500);
 
