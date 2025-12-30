@@ -18,12 +18,25 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// DEBUG: See raw Viator freetext response
-router.get('/autocomplete/debug', async (req, res) => {
-  const { q } = req.query;
+// DEBUG: Test attraction filtering directly
+router.get('/attractions/test/:seoId', async (req, res) => {
+  const { seoId } = req.params;
+  const { destinationId } = req.query;
   
   try {
-    const response = await fetch('https://api.sandbox.viator.com/partner/search/freetext', {
+    const body = {
+      filtering: {
+        destination: parseInt(destinationId),
+        attractionId: parseInt(seoId)
+      },
+      sorting: { sort: 'DEFAULT' },
+      pagination: { start: 1, count: 5 },
+      currency: 'USD'
+    };
+    
+    console.log('Request body:', JSON.stringify(body, null, 2));
+    
+    const response = await fetch('https://api.sandbox.viator.com/partner/products/search', {
       method: 'POST',
       headers: {
         'exp-api-key': process.env.VIATOR_API_KEY,
@@ -31,16 +44,22 @@ router.get('/autocomplete/debug', async (req, res) => {
         'Accept-Language': 'en-US',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        searchTerm: q,
-        searchTypes: [
-          { searchType: 'ATTRACTIONS', pagination: { start: 1, count: 3 } }
-        ],
-        currency: 'USD'
-      })
+      body: JSON.stringify(body)
     });
     
     const data = await response.json();
+    
+    res.json({
+      requestBody: body,
+      totalCount: data.totalCount,
+      productCount: data.products?.length,
+      firstProduct: data.products?.[0]?.title,
+      rawResponse: data
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
     
     // Return raw response so we can see the field names
     res.json({
