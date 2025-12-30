@@ -56,7 +56,8 @@ router.get('/attractions/test/:seoId', async (req, res) => {
       firstProduct: data.products?.[0]?.title,
       rawResponse: data
     });
-  } catch (error) {
+  } 
+  catch (error) {
     res.json({ error: error.message });
   }
 });
