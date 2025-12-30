@@ -2140,7 +2140,7 @@ export async function searchAttractions(destinationId, options = {}) {
 
     return {
       attractionId: attr.attractionId,
-      seoId: attr.seoId,
+      seoId: attr.attractionId, // Use attractionId as the seoId value
       name: attr.name,
       destinationId: attr.destinations?.[0]?.ref || destinationId,
       destinationName: attr.destinationName || null,
