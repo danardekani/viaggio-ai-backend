@@ -1054,7 +1054,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   }
 
   // Apply client-side sorting by review count if requested
-  if (sortBy === 'reviews' && products.length > 0) {
+  if ((sortBy === 'popular' || sortBy === 'reviews') && products.length > 0) {
     products.sort((a, b) => {
       const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
       const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
