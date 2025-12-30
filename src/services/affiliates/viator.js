@@ -877,11 +877,13 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
   const MAX_RESULTS = 1000; // Cap results to keep initial load reasonable (~20 API calls max)
 
-  // PERFORMANCE: Check cache first (only for searches without date filters)
-  const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
+  // PERFORMANCE: Check cache first (only for searches without special filters)
+  // Flags and dates must be applied server-side by Viator, so bypass cache when they're present
+  const hasSpecialFilters = filterOptions.startDate || filterOptions.endDate ||
+                            (filterOptions.flags && filterOptions.flags.length > 0);
   const cacheKey = `${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
 
-  if (!hasDateFilters) {
+  if (!hasSpecialFilters) {
     const cachedResults = getCachedTourSearch(cacheKey);
     if (cachedResults) {
       // Apply any additional client-side filtering and return cached results
