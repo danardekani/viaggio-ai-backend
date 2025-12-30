@@ -17,15 +17,6 @@ import {
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
-    // Return raw response so we can see the field names
-    res.json({
-      rawAttractions: data.attractions?.results?.slice(0, 2),
-      fieldNames: data.attractions?.results?.[0] ? Object.keys(data.attractions.results[0]) : []
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
 
 // ============================================================================
 // GET /api/tours/destinations/autocomplete - Autocomplete for destination input
