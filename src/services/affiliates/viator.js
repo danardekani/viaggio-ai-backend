@@ -2201,7 +2201,7 @@ export async function getAttractionDetails(attractionId) {
 
   return {
     attractionId: attr.attractionId,
-    seoId: attr.seoId,
+    seoId: attr.attractionId, // Use attractionId as seoId
     name: attr.name,
     description: attr.overview || null,
     destinationName: attr.destinationName,
@@ -2345,7 +2345,7 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
   // Transform attractions
   const attractions = (data.attractions?.results || []).map(attr => ({
     attractionId: attr.attractionId,
-    seoId: attr.seoId,
+    seoId: attr.attractionId, // Use attractionId as seoId
     name: attr.name,
     destinationName: attr.destinationName || null,
     productCount: attr.productsCount || 0,
