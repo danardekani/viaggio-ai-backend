@@ -18,6 +18,40 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
+// DEBUG: See raw Viator freetext response
+router.get('/autocomplete/debug', async (req, res) => {
+  const { q } = req.query;
+  
+  try {
+    const response = await fetch('https://api.sandbox.viator.com/partner/search/freetext', {
+      method: 'POST',
+      headers: {
+        'exp-api-key': process.env.VIATOR_API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        searchTerm: q,
+        searchTypes: [
+          { searchType: 'ATTRACTIONS', pagination: { start: 1, count: 3 } }
+        ],
+        currency: 'USD'
+      })
+    });
+    
+    const data = await response.json();
+    
+    // Return raw response so we can see the field names
+    res.json({
+      rawAttractions: data.attractions?.results?.slice(0, 2),
+      fieldNames: data.attractions?.results?.[0] ? Object.keys(data.attractions.results[0]) : []
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // GET /api/tours/destinations/autocomplete - Autocomplete for destination input
 // ============================================================================
