@@ -2249,7 +2249,7 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
   const body = {
     filtering: {
       destination: parseInt(destinationId),
-      seoId: parseInt(seoId)  // Viator API expects seoId, not attractionId
+      attractionId: parseInt(seoId)
     },
     sorting: viatorSort,
     pagination: { start, count },
