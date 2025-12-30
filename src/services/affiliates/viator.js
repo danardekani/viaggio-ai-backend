@@ -879,14 +879,21 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const MAX_RESULTS = 1000;
   const PARALLEL_BATCH_SIZE = 3; // Conservative for API
 
-  // Build cache key (only for searches without date filters)
-  const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
+  // Build cache key - bypass cache when special filters are present
+  // Flags must be applied server-side by Viator, so don't use cache when flags are specified
+  const hasFlags = filterOptions.flags && filterOptions.flags.length > 0;
+  const hasSpecialFilters = filterOptions.startDate || filterOptions.endDate || hasFlags;
   const cacheKey = `tours:${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
 
+  // Debug logging for flags
+  if (hasFlags) {
+    logger.info(`FLAGS FILTER ACTIVE: [${filterOptions.flags.join(', ')}] - bypassing cache`);
+  }
+
   // =========================================================================
-  // CHECK REDIS CACHE FIRST
+  // CHECK REDIS CACHE FIRST (skip if special filters are present)
   // =========================================================================
-  if (!hasDateFilters && isRedisAvailable()) {
+  if (!hasSpecialFilters && isRedisAvailable()) {
     const cached = await cacheGet(cacheKey);
     if (cached && cached.length > 0) {
       logger.info(`Redis cache HIT for ${destination} (${cached.length} tours)`);
@@ -922,6 +929,11 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     };
     if (tags.length > 0) body.filtering.tags = tags;
     applyFilters(body.filtering, filterOptions);
+
+    // Debug log request body on first page when flags are present
+    if (startIndex === 1 && hasFlags) {
+      logger.info(`Viator API request with flags: ${JSON.stringify(body.filtering)}`);
+    }
     return body;
   };
 
@@ -1053,9 +1065,9 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   const formattedResults = products.map(p => formatTourResult(p));
 
   // =========================================================================
-  // STORE IN REDIS CACHE
+  // STORE IN REDIS CACHE (skip if special filters were used)
   // =========================================================================
-  if (!hasDateFilters && isRedisAvailable() && formattedResults.length > 0) {
+  if (!hasSpecialFilters && isRedisAvailable() && formattedResults.length > 0) {
     const ttl = 3600; // 1 hour cache
     const cached = await cacheSet(cacheKey, formattedResults, ttl);
     if (cached) {
