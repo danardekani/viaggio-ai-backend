@@ -54,7 +54,7 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
  * {
  *   destination: "Boston",           // Required
  *   searchTerms: "food brewery",     // Optional - filter by keywords
- *   resultCount: 5,                  // Optional - number of results (default 10)
+ *   resultCount: 5,                  // Optional - number of results (default 50)
  *   sortBy: "reviews",               // Optional - 'popular', 'rating', 'reviews', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'
  *   startDate: "2025-07-15",         // Optional - YYYY-MM-DD format
  *   endDate: "2025-07-22",           // Optional - YYYY-MM-DD format
@@ -81,7 +81,7 @@ router.post('/search', async (req, res, next) => {
       destination,
       destinationId,
       searchTerms = '',
-      resultCount = 10,
+      resultCount = 50,
       sortBy = 'popular',
       startDate,
       endDate,
@@ -105,13 +105,16 @@ router.post('/search', async (req, res, next) => {
       ? flags.filter(f => validFlags.includes(f))
       : [];
 
-    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}`);
+    // Cap requested count to reasonable limit
+    const requestedCount = Math.min(parseInt(resultCount) || 50, 500);
+
+    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${requestedCount}, sort=${sortBy}`);
 
     const result = await searchTours({
       destination,
       destinationId,
       searchTerms,
-      resultCount: Math.min(parseInt(resultCount) || 10, 500), // Allow up to 500
+      resultCount: requestedCount,
       sortBy,
       startDate,
       endDate,
@@ -124,32 +127,33 @@ router.post('/search', async (req, res, next) => {
     });
 
     // Handle both old format (array) and new format (object with metadata)
-    let tours, totalCount, hasMore;
+    let allTours, totalCount;
 
     if (Array.isArray(result)) {
-      // Old format - backward compatibility
-      tours = result;
+      allTours = result;
       totalCount = result.length;
-      hasMore = false;
     } else {
-      // New format with metadata
-      tours = result.tours || [];
-      totalCount = result.totalCount || tours.length;
-      hasMore = result.hasMore || false;
+      allTours = result.tours || [];
+      totalCount = result.totalCount || allTours.length;
     }
+
+    // IMPORTANT: Only return the requested number of tours for faster response
+    // The full dataset is cached in Redis, but we only send what's needed
+    const tours = allTours.slice(0, requestedCount);
+    const hasMore = allTours.length > requestedCount;
 
     logger.info(`Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`);
 
     res.json({
       tours,
-      totalCount,        // Total available from Viator
-      hasMore,           // Are there more results beyond what we fetched?
+      totalCount,        // Total available in cache
+      hasMore,           // Are there more results beyond what we returned?
       count: tours.length,
       searchParams: {
         destination,
         destinationId,
         searchTerms,
-        resultCount,
+        resultCount: requestedCount,
         sortBy,
         startDate,
         endDate,
