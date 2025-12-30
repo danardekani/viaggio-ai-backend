@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { logger } from '../../utils/logger.js';
+import { cacheGet, cacheSet, isRedisAvailable } from '../../utils/redis.js';
 
 const VIATOR_API_BASE = 'https://api.sandbox.viator.com/partner';
 const API_KEY = process.env.VIATOR_API_KEY;
@@ -854,7 +855,7 @@ export async function searchTours({
 }
 
 // ============================================================================
-// SEARCH BY DESTINATION ID (Fallback with optional filtering)
+// SEARCH BY DESTINATION ID (with Redis caching)
 // ============================================================================
 
 async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}, providedDestinationId = null) {
@@ -874,18 +875,24 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
   const tags = getTagsFromSearchTerms(filterTerms);
   const viatorSort = getViatorSort(sortBy);
-  const PAGE_SIZE = 50; // Viator API max per request (they limit to 50 even if you ask for more)
-  const MAX_RESULTS = 1000; // Cap results to keep initial load reasonable (~20 API calls max)
+  const PAGE_SIZE = 50;
+  const MAX_RESULTS = 1000;
+  const PARALLEL_BATCH_SIZE = 3; // Conservative for API
 
-  // PERFORMANCE: Check cache first (only for searches without date filters)
+  // Build cache key (only for searches without date filters)
   const hasDateFilters = filterOptions.startDate || filterOptions.endDate;
-  const cacheKey = `${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
+  const cacheKey = `tours:${destInfo.id}:${tags.sort().join(',')}:${sortBy}`;
 
-  if (!hasDateFilters) {
-    const cachedResults = getCachedTourSearch(cacheKey);
-    if (cachedResults) {
-      // Apply any additional client-side filtering and return cached results
-      let products = cachedResults;
+  // =========================================================================
+  // CHECK REDIS CACHE FIRST
+  // =========================================================================
+  if (!hasDateFilters && isRedisAvailable()) {
+    const cached = await cacheGet(cacheKey);
+    if (cached && cached.length > 0) {
+      logger.info(`Redis cache HIT for ${destination} (${cached.length} tours)`);
+      
+      // Apply any runtime text filtering
+      let products = cached;
       if (filterTerms && tags.length === 0) {
         const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
         products = products.filter(p => {
@@ -893,19 +900,22 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
           return filterWords.some(word => searchText.includes(word));
         });
       }
-      logger.info(`Returning ${products.length} cached tours for ${destination}`);
+      
       return products;
     }
+    logger.info(`Redis cache MISS for ${destination}`);
   }
 
-  logger.info(`Searching tours: destination=${destInfo.id} (${destInfo.name}), filter="${filterTerms}", tags=[${tags.join(',')}], sort=${sortBy}`);
-
-  const PARALLEL_BATCH_SIZE = 10; // Fetch 10 pages at once (500 tours per batch)
+  // =========================================================================
+  // FETCH FROM VIATOR API
+  // =========================================================================
+  
+  logger.info(`Fetching from Viator: destination=${destInfo.id} (${destInfo.name}), tags=[${tags.join(',')}], sort=${sortBy}`);
 
   // Helper to build search request body
   const buildSearchBody = (startIndex) => {
     const body = {
-      filtering: { destination: destInfo.id },
+      filtering: { destination: String(destInfo.id) },
       sorting: viatorSort,
       pagination: { start: startIndex, count: PAGE_SIZE },
       currency: 'USD'
@@ -968,116 +978,89 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
       const batchNum = Math.floor(i / PARALLEL_BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(remainingPageStarts.length / PARALLEL_BATCH_SIZE);
-      logger.info(`Batch ${batchNum}/${totalBatches}: fetched ${batch.length * PAGE_SIZE} tours (total so far: ${allProducts.length})`);
+      logger.info(`Batch ${batchNum}/${totalBatches}: total so far: ${allProducts.length}`);
+
+      // Add delay between batches to avoid rate limiting
+      if (i + PARALLEL_BATCH_SIZE < remainingPageStarts.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
   }
 
   const elapsed = Date.now() - startTime;
-  logger.info(`Fetched ${allProducts.length} tours for ${destination} in ${elapsed}ms (API total: ${totalCount}, parallel batches used)`);
+  logger.info(`Fetched ${allProducts.length} tours for ${destination} in ${elapsed}ms`);
 
-  // If tag filtering returned 0 results, retry without tags using parallel fetch
+  // If tag filtering returned 0 results, retry without tags
   if (allProducts.length === 0 && tags.length > 0) {
     logger.info(`No results with tags, retrying without tag filter`);
-
-    // Build retry search body (no tags)
-    const buildRetryBody = (startIndex) => {
-      const body = {
-        filtering: { destination: destInfo.id },
-        sorting: viatorSort,
-        pagination: { start: startIndex, count: PAGE_SIZE },
-        currency: 'USD'
-      };
-      applyFilters(body.filtering, filterOptions);
-      return body;
+    // Simplified retry - just get first batch without tags
+    const retryBody = {
+      filtering: { destination: String(destInfo.id) },
+      sorting: viatorSort,
+      pagination: { start: 1, count: PAGE_SIZE },
+      currency: 'USD'
     };
+    applyFilters(retryBody.filtering, filterOptions);
 
-    // Fetch retry page helper
-    const fetchRetryPage = async (startIndex) => {
-      const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
-        method: 'POST',
-        headers: {
-          'exp-api-key': API_KEY,
-          'Accept': 'application/json;version=2.0',
-          'Accept-Language': 'en-US',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(buildRetryBody(startIndex))
-      });
+    const retryResponse = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
+      method: 'POST',
+      headers: {
+        'exp-api-key': API_KEY,
+        'Accept': 'application/json;version=2.0',
+        'Accept-Language': 'en-US',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(retryBody)
+    });
 
-      if (!response.ok) return { products: [], totalCount: 0 };
-      const data = await response.json();
-      return { products: data.products || [], totalCount: data.totalCount || 0 };
-    };
-
-    // Fetch first page to get count
-    const retryFirst = await fetchRetryPage(1);
-    allProducts = retryFirst.products;
-    const retryTotal = retryFirst.totalCount;
-    const retryPages = Math.ceil(Math.min(MAX_RESULTS, retryTotal) / PAGE_SIZE);
-
-    if (retryPages > 1) {
-      const retryStarts = [];
-      for (let p = 2; p <= retryPages; p++) {
-        retryStarts.push((p - 1) * PAGE_SIZE + 1);
-      }
-
-      for (let i = 0; i < retryStarts.length; i += PARALLEL_BATCH_SIZE) {
-        const batch = retryStarts.slice(i, i + PARALLEL_BATCH_SIZE);
-        const results = await Promise.all(batch.map(s => fetchRetryPage(s)));
-        for (const r of results) allProducts.push(...r.products);
-      }
+    if (retryResponse.ok) {
+      const retryData = await retryResponse.json();
+      allProducts = retryData.products || [];
     }
-
-    logger.info(`Retry without tags found ${allProducts.length} tours (parallel fetch)`);
   }
 
   let products = allProducts;
 
-  // Apply client-side filtering if we have search terms but no tag results
+  // Apply client-side text filtering if needed
   if (filterTerms && products.length > 0 && tags.length === 0) {
     const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
-    
     const filteredProducts = products.filter(product => {
       const title = (product.title || '').toLowerCase();
       const description = (product.description || '').toLowerCase();
-      const searchText = `${title} ${description}`;
-      return filterWords.some(word => searchText.includes(word));
+      return filterWords.some(word => title.includes(word) || description.includes(word));
     });
-
-    logger.info(`Client-side filtered ${products.length} tours down to ${filteredProducts.length} matching "${filterTerms}"`);
 
     if (filteredProducts.length > 0) {
       products = filteredProducts;
-    } else {
-      logger.info(`No tours matched filter "${filterTerms}", returning all tours instead`);
+      logger.info(`Text filtered to ${products.length} tours matching "${filterTerms}"`);
     }
   }
 
-  // Apply client-side sorting by review count if requested
+  // Apply client-side sorting by review count for 'popular' and 'reviews'
   if ((sortBy === 'popular' || sortBy === 'reviews') && products.length > 0) {
     products.sort((a, b) => {
       const reviewsA = a.reviews?.totalReviews || a.reviewCount || 0;
       const reviewsB = b.reviews?.totalReviews || b.reviewCount || 0;
       return reviewsB - reviewsA;
     });
-    logger.info(`Sorted ${products.length} tours by review count (top: ${products[0]?.reviews?.totalReviews || products[0]?.reviewCount || 0} reviews)`);
+    logger.info(`Sorted by review count (top: ${products[0]?.reviews?.totalReviews || 0} reviews)`);
   }
 
-  // Filter out/deprioritize transfers - actual tours should come first
+  // Filter out transfers
   products = filterTransfers(products, false);
-
-  // If ALL results are transfers, log a warning
-  const actualTours = products.filter(p => !isTransferProduct(p));
-  if (actualTours.length === 0 && products.length > 0) {
-    logger.warn(`Only transfers found for ${destination}, no actual tours available`);
-  }
 
   // Format all results
   const formattedResults = products.map(p => formatTourResult(p));
 
-  // PERFORMANCE: Cache the results for subsequent requests (only if no date filters)
-  if (!hasDateFilters) {
-    cacheTourSearch(cacheKey, formattedResults);
+  // =========================================================================
+  // STORE IN REDIS CACHE
+  // =========================================================================
+  if (!hasDateFilters && isRedisAvailable() && formattedResults.length > 0) {
+    const ttl = 3600; // 1 hour cache
+    const cached = await cacheSet(cacheKey, formattedResults, ttl);
+    if (cached) {
+      logger.info(`Redis cache STORE: ${formattedResults.length} tours for ${destination} (TTL: ${ttl}s)`);
+    }
   }
 
   logger.info(`Returning ${formattedResults.length} tours for ${destination}`);
