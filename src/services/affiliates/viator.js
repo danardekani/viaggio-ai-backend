@@ -2346,6 +2346,7 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
   const attractions = (data.attractions?.results || []).map(attr => ({
     attractionId: attr.attractionId,
     seoId: attr.attractionId, // Use attractionId as seoId
+    destinationId: attr.destinationId,
     name: attr.name,
     destinationName: attr.destinationName || null,
     productCount: attr.productsCount || 0,
