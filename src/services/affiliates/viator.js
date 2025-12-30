@@ -2344,9 +2344,9 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
 
   // Transform attractions
   const attractions = (data.attractions?.results || []).map(attr => ({
-    attractionId: attr.attractionId,
-    seoId: attr.attractionId, // Use attractionId as seoId
-    destinationId: attr.destinationId,
+    attractionId: attr.id,
+    seoId: attr.id, // Use attractionId as seoId
+    destinationId: attr.primaryDestinationId,
     name: attr.name,
     destinationName: attr.destinationName || null,
     productCount: attr.productsCount || 0,
