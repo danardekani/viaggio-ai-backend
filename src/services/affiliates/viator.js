@@ -2283,6 +2283,12 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
   // Use existing formatTourResult function
   const tours = (data.products || []).map(p => formatTourResult(p));
 
+  // Sort by review count for "popular" since Viator's DEFAULT doesn't
+  if (sortBy === 'popular') {
+    tours.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
+    logger.info(`Sorted ${tours.length} tours by review count (top: ${tours[0]?.reviewCount || 0} reviews)`);
+  }
+
   logger.info(`Found ${tours.length} tours for seoId ${seoId}`);
 
   return {
