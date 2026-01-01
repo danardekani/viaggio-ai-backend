@@ -1977,8 +1977,11 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
 // ============================================================================
 
 // Popular destinations to pre-warm (IDs are optional - will be looked up if missing)
+// 100 destinations total: 25 per region
 const POPULAR_DESTINATIONS = [
-  // Europe
+  // =========================================================================
+  // EUROPE (25)
+  // =========================================================================
   { id: 511, name: 'Rome' },
   { id: 737, name: 'Paris' },
   { id: 687, name: 'London' },
@@ -1992,8 +1995,22 @@ const POPULAR_DESTINATIONS = [
   { name: 'Prague' },
   { name: 'Vienna' },
   { name: 'Santorini' },
+  { name: 'Munich' },
+  { name: 'Berlin' },
+  { name: 'Milan' },
+  { name: 'Edinburgh' },
+  { name: 'Budapest' },
+  { name: 'Copenhagen' },
+  { name: 'Stockholm' },
+  { name: 'Brussels' },
+  { name: 'Nice' },
+  { name: 'Amalfi Coast' },
+  { name: 'Cinque Terre' },
+  { name: 'Dubrovnik' },
 
-  // United States
+  // =========================================================================
+  // UNITED STATES (25)
+  // =========================================================================
   { id: 684, name: 'New York City' },
   { id: 662, name: 'Las Vegas' },
   { id: 666, name: 'San Francisco' },
@@ -2008,8 +2025,21 @@ const POPULAR_DESTINATIONS = [
   { name: 'Orlando' },
   { name: 'San Diego' },
   { name: 'Nashville' },
+  { name: 'Austin' },
+  { name: 'Denver' },
+  { name: 'Philadelphia' },
+  { name: 'Phoenix' },
+  { name: 'Key West' },
+  { name: 'Savannah' },
+  { name: 'Charleston' },
+  { name: 'Napa Valley' },
+  { name: 'Portland' },
+  { name: 'Sedona' },
+  { name: 'Grand Canyon' },
 
-  // Asia
+  // =========================================================================
+  // ASIA & MIDDLE EAST (25)
+  // =========================================================================
   { id: 485, name: 'Tokyo' },
   { id: 495, name: 'Dubai' },
   { name: 'Bangkok' },
@@ -2023,13 +2053,47 @@ const POPULAR_DESTINATIONS = [
   { name: 'Kuala Lumpur' },
   { name: 'Ho Chi Minh City' },
   { name: 'Phuket' },
+  { name: 'Hanoi' },
+  { name: 'Siem Reap' },
+  { name: 'Chiang Mai' },
+  { name: 'Mumbai' },
+  { name: 'Delhi' },
+  { name: 'Jaipur' },
+  { name: 'Beijing' },
+  { name: 'Shanghai' },
+  { name: 'Abu Dhabi' },
+  { name: 'Jerusalem' },
+  { name: 'Tel Aviv' },
+  { name: 'Maldives' },
 
-  // Other popular
+  // =========================================================================
+  // OTHER (Americas, Africa, Oceania) (25)
+  // =========================================================================
   { id: 618, name: 'Sydney' },
   { id: 561, name: 'Cancun' },
   { name: 'Cabo San Lucas' },
   { name: 'Reykjavik' },
-  { name: 'Maui' }
+  { name: 'Maui' },
+  { name: 'Melbourne' },
+  { name: 'Auckland' },
+  { name: 'Queenstown' },
+  { name: 'Fiji' },
+  { name: 'Cape Town' },
+  { name: 'Marrakech' },
+  { name: 'Cairo' },
+  { name: 'Istanbul' },
+  { name: 'Rio de Janeiro' },
+  { name: 'Buenos Aires' },
+  { name: 'Lima' },
+  { name: 'Cartagena' },
+  { name: 'Puerto Vallarta' },
+  { name: 'Playa del Carmen' },
+  { name: 'Jamaica' },
+  { name: 'Aruba' },
+  { name: 'Bahamas' },
+  { name: 'Puerto Rico' },
+  { name: 'Costa Rica' },
+  { name: 'Panama City' }
 ];
 
 /**
