@@ -14,14 +14,14 @@ export const corsConfig = {
       'https://viaggio-ai-git-viaggio-ai-frontend-test-danardekanis-projects.vercel.app',
       'https://viaggio-a7dvl0g3r-danardekanis-projects.vercel.app',
       'https://viaggio-ai.vercel.app',
-      
-      'http://localhost:5173',  // Local development
-      'http://localhost:3000'   // Alternative local port
+
+      'http://localhost:5173', // Local development
+      'http://localhost:3000', // Alternative local port
     ];
-    
+
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -30,5 +30,5 @@ export const corsConfig = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };

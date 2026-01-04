@@ -15,11 +15,11 @@ export function getRedis() {
     redis = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
       retryDelayOnFailover: 100,
-      lazyConnect: true
+      lazyConnect: true,
     });
 
     redis.on('connect', () => logger.info('Redis connected'));
-    redis.on('error', (err) => logger.error('Redis error:', err.message));
+    redis.on('error', err => logger.error('Redis error:', err.message));
   }
   return redis;
 }

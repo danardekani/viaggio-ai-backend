@@ -24,7 +24,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
   try {
     const response = await fetch(url, {
       ...options,
-      signal: controller.signal
+      signal: controller.signal,
     });
     return response;
   } catch (error) {
@@ -44,66 +44,66 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
 
 const TAG_MAPPING = {
   // Food & Drink
-  'food': 21911,
+  food: 21911,
   'food tour': 12053,
   'food tours': 12053,
-  'culinary': 12053,
-  'dining': 11890,
-  'restaurant': 11890,
-  'eating': 12053,
-  'tasting': 12053,
-  'wine': 11933,
-  'beer': 11934,
-  'brewery': 11934,
-  'cooking': 11879,
+  culinary: 12053,
+  dining: 11890,
+  restaurant: 11890,
+  eating: 12053,
+  tasting: 12053,
+  wine: 11933,
+  beer: 11934,
+  brewery: 11934,
+  cooking: 11879,
   'cooking class': 11879,
-  
+
   // Tours & Sightseeing
-  'walking': 11938,
+  walking: 11938,
   'walking tour': 11938,
   'bus tour': 11930,
   'hop on hop off': 11931,
   'city tour': 11929,
-  'sightseeing': 21913,
+  sightseeing: 21913,
   'guided tour': 11929,
-  
+
   // History & Culture
-  'history': 21914,
-  'historical': 21914,
-  'museum': 11877,
-  'art': 11876,
-  'culture': 21914,
-  'heritage': 21914,
-  
+  history: 21914,
+  historical: 21914,
+  museum: 11877,
+  art: 11876,
+  culture: 21914,
+  heritage: 21914,
+
   // Outdoor & Adventure
-  'adventure': 21909,
-  'outdoor': 21909,
-  'hiking': 11897,
-  'biking': 11898,
-  'bike': 11898,
-  'kayak': 11899,
-  'water': 21442,
-  'boat': 21701,
-  'sailing': 21701,
-  'cruise': 21701,
-  
+  adventure: 21909,
+  outdoor: 21909,
+  hiking: 11897,
+  biking: 11898,
+  bike: 11898,
+  kayak: 11899,
+  water: 21442,
+  boat: 21701,
+  sailing: 21701,
+  cruise: 21701,
+
   // Entertainment
-  'nightlife': 11963,
-  'show': 11941,
-  'concert': 11941,
-  'theater': 11941,
-  'entertainment': 11941,
-  
+  nightlife: 11963,
+  show: 11941,
+  concert: 11941,
+  theater: 11941,
+  entertainment: 11941,
+
   // Family
-  'family': 21917,
-  'kids': 21917,
-  'children': 21917,
-  
+  family: 21917,
+  kids: 21917,
+  children: 21917,
+
   // Quality tags
-  'top': 367652,
-  'best': 21972,
-  'popular': 22083,
-  'unique': 21074
+  top: 367652,
+  best: 21972,
+  popular: 22083,
+  unique: 21074,
 };
 
 // Cache for destinations
@@ -137,10 +137,12 @@ export function clearTourSearchCache() {
 }
 
 // Get cached tour search results
-function getCachedTourSearch(cacheKey) {
+function _getCachedTourSearch(cacheKey) {
   const cached = tourSearchCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < TOUR_CACHE_DURATION) {
-    logger.info(`Tour cache HIT for ${cacheKey} (${cached.tours.length} tours, age: ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
+  if (cached && Date.now() - cached.timestamp < TOUR_CACHE_DURATION) {
+    logger.info(
+      `Tour cache HIT for ${cacheKey} (${cached.tours.length} tours, age: ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`
+    );
     return cached.tours;
   }
   if (cached) {
@@ -150,7 +152,7 @@ function getCachedTourSearch(cacheKey) {
 }
 
 // Store tour search results in cache
-function cacheTourSearch(cacheKey, tours) {
+function _cacheTourSearch(cacheKey, tours) {
   // Evict oldest entries if cache is full
   if (tourSearchCache.size >= MAX_TOUR_CACHE_ENTRIES) {
     const oldestKey = tourSearchCache.keys().next().value;
@@ -200,7 +202,7 @@ const TRANSFER_KEYWORDS = [
   'transfer from',
   'transfer to',
   'pickup from',
-  'drop-off'
+  'drop-off',
 ];
 
 /**
@@ -234,13 +236,17 @@ function filterTransfers(products, excludeTransfers = false) {
   }
 
   if (excludeTransfers) {
-    logger.info(`Filtered out ${transfers.length} transfer products, keeping ${tours.length} tours`);
+    logger.info(
+      `Filtered out ${transfers.length} transfer products, keeping ${tours.length} tours`
+    );
     return tours;
   }
 
   // Put tours first, transfers at the end
   if (transfers.length > 0) {
-    logger.info(`Deprioritized ${transfers.length} transfer products, ${tours.length} tours shown first`);
+    logger.info(
+      `Deprioritized ${transfers.length} transfer products, ${tours.length} tours shown first`
+    );
     // Use push for better performance than spread
     for (const t of transfers) {
       tours.push(t);
@@ -255,10 +261,10 @@ function filterTransfers(products, excludeTransfers = false) {
 
 function getTagsFromSearchTerms(searchTerms) {
   if (!searchTerms) return [];
-  
+
   const terms = searchTerms.toLowerCase().trim();
   const tags = [];
-  
+
   // Check for exact matches first (longer phrases)
   for (const [term, tagId] of Object.entries(TAG_MAPPING)) {
     if (terms.includes(term)) {
@@ -267,7 +273,7 @@ function getTagsFromSearchTerms(searchTerms) {
       }
     }
   }
-  
+
   // Also check individual words
   const words = terms.split(/\s+/);
   for (const word of words) {
@@ -275,7 +281,7 @@ function getTagsFromSearchTerms(searchTerms) {
       tags.push(TAG_MAPPING[word]);
     }
   }
-  
+
   logger.info(`Mapped search terms "${searchTerms}" to tags: [${tags.join(', ')}]`);
   return tags;
 }
@@ -285,9 +291,14 @@ function getTagsFromSearchTerms(searchTerms) {
 // ============================================================================
 
 async function fetchDestinations() {
-  if (destinationsCache && destinationsCacheTime && 
-      (Date.now() - destinationsCacheTime) < CACHE_DURATION) {
-    logger.info(`Using cached destinations (${destinationsCache.length} destinations, cached ${Math.round((Date.now() - destinationsCacheTime) / 60000)} min ago)`);
+  if (
+    destinationsCache &&
+    destinationsCacheTime &&
+    Date.now() - destinationsCacheTime < CACHE_DURATION
+  ) {
+    logger.info(
+      `Using cached destinations (${destinationsCache.length} destinations, cached ${Math.round((Date.now() - destinationsCacheTime) / 60000)} min ago)`
+    );
     return destinationsCache;
   }
 
@@ -297,9 +308,9 @@ async function fetchDestinations() {
     method: 'GET',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
-      'Accept-Language': 'en-US'
-    }
+      Accept: 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+    },
   });
 
   if (!response.ok) {
@@ -319,25 +330,25 @@ async function fetchDestinations() {
 // ============================================================================
 
 const REGIONAL_FALLBACKS = {
-  'napa': 'Napa & Sonoma',
+  napa: 'Napa & Sonoma',
   'napa valley': 'Napa & Sonoma',
-  'sonoma': 'Napa & Sonoma',
+  sonoma: 'Napa & Sonoma',
   'wine country': 'Napa & Sonoma',
   'portland, me': 'Portland',
   'portland, maine': 'Portland',
-  'portland maine': 'Portland'
+  'portland maine': 'Portland',
 };
 
 // State abbreviations
 const STATE_ABBREVS = {
-  'me': 'Maine',
-  'or': 'Oregon',
-  'wa': 'Washington',
-  'ca': 'California',
-  'ny': 'New York',
-  'ma': 'Massachusetts',
-  'fl': 'Florida',
-  'tx': 'Texas'
+  me: 'Maine',
+  or: 'Oregon',
+  wa: 'Washington',
+  ca: 'California',
+  ny: 'New York',
+  ma: 'Massachusetts',
+  fl: 'Florida',
+  tx: 'Texas',
 };
 
 // ============================================================================
@@ -348,11 +359,11 @@ export async function findDestination(query, stateContext = null) {
   try {
     const destinations = await fetchDestinations();
     const normalizedQuery = query.toLowerCase().trim();
-    
+
     // Parse query for city, country pattern (e.g., "London, England" or "Paris, France")
     let cityName = normalizedQuery;
     let countryHint = null;
-    
+
     // Check for comma-separated format: "City, Country" or "City, State"
     const commaMatch = normalizedQuery.match(/^([^,]+),\s*(.+)$/);
     if (commaMatch) {
@@ -360,24 +371,26 @@ export async function findDestination(query, stateContext = null) {
       countryHint = commaMatch[2].trim();
       logger.info(`Parsed query: city="${cityName}", country/region hint="${countryHint}"`);
     }
-    
-    logger.info(`Looking up destination: "${query}" -> city: "${cityName}"${countryHint ? `, hint: "${countryHint}"` : ''}${stateContext ? ` (state context: parentId=${stateContext.parentId})` : ''}`);
+
+    logger.info(
+      `Looking up destination: "${query}" -> city: "${cityName}"${countryHint ? `, hint: "${countryHint}"` : ''}${stateContext ? ` (state context: parentId=${stateContext.parentId})` : ''}`
+    );
 
     // Try to find the destination with country hint if available
     let match = findDestinationMatch(destinations, cityName, stateContext, countryHint);
-    
+
     // If no match with city name alone, try full query
     if (!match && cityName !== normalizedQuery) {
       match = findDestinationMatch(destinations, normalizedQuery, stateContext, null);
     }
-    
+
     // If no match, try regional fallback
     if (!match && REGIONAL_FALLBACKS[normalizedQuery]) {
       const fallbackName = REGIONAL_FALLBACKS[normalizedQuery];
       logger.info(`No match for "${normalizedQuery}", trying regional fallback: "${fallbackName}"`);
       match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null, null);
     }
-    
+
     // Also try the original query with state in the fallbacks
     if (!match) {
       const originalNormalized = query.toLowerCase().trim();
@@ -387,7 +400,7 @@ export async function findDestination(query, stateContext = null) {
         match = findDestinationMatch(destinations, fallbackName.toLowerCase(), null, null);
       }
     }
-    
+
     // If still no match and we have state context, try the state/region itself
     if (!match && stateContext) {
       const stateName = stateContext.stateName || STATE_ABBREVS[stateContext.stateAbbrev];
@@ -403,7 +416,7 @@ export async function findDestination(query, stateContext = null) {
       logger.info(`Found destination: "${name}" (ID: ${id}) for query "${query}"`);
       return {
         id: id.toString(),
-        name: name
+        name: name,
       };
     }
 
@@ -417,34 +430,72 @@ export async function findDestination(query, stateContext = null) {
 
 // Country/region name mappings for disambiguation
 const COUNTRY_ALIASES = {
-  'england': ['united kingdom', 'uk', 'great britain', 'britain'],
-  'uk': ['united kingdom', 'england', 'great britain', 'britain'],
+  england: ['united kingdom', 'uk', 'great britain', 'britain'],
+  uk: ['united kingdom', 'england', 'great britain', 'britain'],
   'united kingdom': ['uk', 'england', 'great britain', 'britain'],
   'great britain': ['united kingdom', 'uk', 'england', 'britain'],
-  'britain': ['united kingdom', 'uk', 'england', 'great britain'],
-  'usa': ['united states', 'us', 'america'],
-  'us': ['united states', 'usa', 'america'],
+  britain: ['united kingdom', 'uk', 'england', 'great britain'],
+  usa: ['united states', 'us', 'america'],
+  us: ['united states', 'usa', 'america'],
   'united states': ['usa', 'us', 'america'],
-  'america': ['united states', 'usa', 'us'],
-  'uae': ['united arab emirates'],
-  'united arab emirates': ['uae']
+  america: ['united states', 'usa', 'us'],
+  uae: ['united arab emirates'],
+  'united arab emirates': ['uae'],
 };
 
 // US State name mappings (full name -> abbreviation and vice versa)
 const US_STATE_MAPPINGS = {
-  'alabama': 'al', 'alaska': 'ak', 'arizona': 'az', 'arkansas': 'ar',
-  'california': 'ca', 'colorado': 'co', 'connecticut': 'ct', 'delaware': 'de',
-  'florida': 'fl', 'georgia': 'ga', 'hawaii': 'hi', 'idaho': 'id',
-  'illinois': 'il', 'indiana': 'in', 'iowa': 'ia', 'kansas': 'ks',
-  'kentucky': 'ky', 'louisiana': 'la', 'maine': 'me', 'maryland': 'md',
-  'massachusetts': 'ma', 'michigan': 'mi', 'minnesota': 'mn', 'mississippi': 'ms',
-  'missouri': 'mo', 'montana': 'mt', 'nebraska': 'ne', 'nevada': 'nv',
-  'new hampshire': 'nh', 'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny',
-  'north carolina': 'nc', 'north dakota': 'nd', 'ohio': 'oh', 'oklahoma': 'ok',
-  'oregon': 'or', 'pennsylvania': 'pa', 'rhode island': 'ri', 'south carolina': 'sc',
-  'south dakota': 'sd', 'tennessee': 'tn', 'texas': 'tx', 'utah': 'ut',
-  'vermont': 'vt', 'virginia': 'va', 'washington': 'wa', 'west virginia': 'wv',
-  'wisconsin': 'wi', 'wyoming': 'wy', 'district of columbia': 'dc'
+  alabama: 'al',
+  alaska: 'ak',
+  arizona: 'az',
+  arkansas: 'ar',
+  california: 'ca',
+  colorado: 'co',
+  connecticut: 'ct',
+  delaware: 'de',
+  florida: 'fl',
+  georgia: 'ga',
+  hawaii: 'hi',
+  idaho: 'id',
+  illinois: 'il',
+  indiana: 'in',
+  iowa: 'ia',
+  kansas: 'ks',
+  kentucky: 'ky',
+  louisiana: 'la',
+  maine: 'me',
+  maryland: 'md',
+  massachusetts: 'ma',
+  michigan: 'mi',
+  minnesota: 'mn',
+  mississippi: 'ms',
+  missouri: 'mo',
+  montana: 'mt',
+  nebraska: 'ne',
+  nevada: 'nv',
+  'new hampshire': 'nh',
+  'new jersey': 'nj',
+  'new mexico': 'nm',
+  'new york': 'ny',
+  'north carolina': 'nc',
+  'north dakota': 'nd',
+  ohio: 'oh',
+  oklahoma: 'ok',
+  oregon: 'or',
+  pennsylvania: 'pa',
+  'rhode island': 'ri',
+  'south carolina': 'sc',
+  'south dakota': 'sd',
+  tennessee: 'tn',
+  texas: 'tx',
+  utah: 'ut',
+  vermont: 'vt',
+  virginia: 'va',
+  washington: 'wa',
+  'west virginia': 'wv',
+  wisconsin: 'wi',
+  wyoming: 'wy',
+  'district of columbia': 'dc',
 };
 
 // Nearby destination fallbacks for cities that don't exist in Viator
@@ -452,16 +503,16 @@ const US_STATE_MAPPINGS = {
 const NEARBY_DESTINATION_FALLBACKS = {
   // New Jersey Shore towns -> Atlantic City (the main NJ beach destination in Viator)
   'ocean city': ['Atlantic City', 'Philadelphia'],
-  'wildwood': ['Atlantic City', 'Philadelphia'],
+  wildwood: ['Atlantic City', 'Philadelphia'],
   'cape may': ['Atlantic City', 'Philadelphia'],
   'seaside heights': ['Atlantic City', 'Philadelphia'],
   'point pleasant': ['Atlantic City', 'Philadelphia'],
   'long beach island': ['Atlantic City', 'Philadelphia'],
   'asbury park': ['Atlantic City', 'Philadelphia'],
   // Other common fallbacks
-  'hoboken': ['New York City', 'Jersey City'],
+  hoboken: ['New York City', 'Jersey City'],
   'jersey city': ['New York City'],
-  'newark': ['New York City'],
+  newark: ['New York City'],
 };
 
 // Create reverse mapping (abbreviation -> full name)
@@ -475,17 +526,17 @@ const US_STATE_ABBREV_TO_NAME = Object.fromEntries(
 function getStateVariations(stateHint) {
   const hint = stateHint.toLowerCase().trim();
   const variations = [hint];
-  
+
   // If it's a full state name, add the abbreviation
   if (US_STATE_MAPPINGS[hint]) {
     variations.push(US_STATE_MAPPINGS[hint]);
   }
-  
+
   // If it's an abbreviation, add the full name
   if (US_STATE_ABBREV_TO_NAME[hint]) {
     variations.push(US_STATE_ABBREV_TO_NAME[hint]);
   }
-  
+
   return variations;
 }
 
@@ -524,12 +575,12 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
   // Sort by score descending and extract destinations
   scoredMatches.sort((a, b) => b.score - a.score);
   const matches = scoredMatches.map(m => m.dest);
-  
+
   // If we have a hint, verify even single matches
   if (matches.length === 1 && countryHint) {
     const match = matches[0];
     const destMap = getDestinationMap(destinations);
-    
+
     // Get hint variations
     const hintVariations = [countryHint];
     if (COUNTRY_ALIASES[countryHint]) {
@@ -537,16 +588,16 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
     }
     const stateVariations = getStateVariations(countryHint);
     hintVariations.push(...stateVariations);
-    
+
     // Check if this single match actually matches the hint
     let matchesHint = false;
-    
+
     // Check destination name itself
     const destName = (match.destinationName || match.name || '').toLowerCase();
     if (hintVariations.some(hint => destName.includes(hint))) {
       matchesHint = true;
     }
-    
+
     // Check ancestry
     if (!matchesHint) {
       let currentDest = match;
@@ -565,18 +616,23 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         depth++;
       }
     }
-    
+
     if (matchesHint) {
       logger.info(`Single match "${match.name}" verified against hint "${countryHint}"`);
       return match;
     } else {
       // Single match doesn't match the hint - this is likely wrong!
       // Try to find the state/region as a destination instead
-      logger.warn(`Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`);
-      
+      logger.warn(
+        `Single match "${match.name}" (ID: ${match.destinationId}) does NOT match hint "${countryHint}" - may be wrong location!`
+      );
+
       // Split the hint by comma to get individual parts (e.g., "new jersey, united states" -> ["new jersey", "united states"])
-      const hintParts = countryHint.split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-      
+      const hintParts = countryHint
+        .split(',')
+        .map(p => p.trim().toLowerCase())
+        .filter(p => p.length > 0);
+
       // Build expanded hint variations including split parts
       const expandedHints = [...hintVariations];
       for (const part of hintParts) {
@@ -591,9 +647,9 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
           }
         }
       }
-      
+
       logger.info(`Searching for fallback with hints: ${expandedHints.slice(0, 10).join(', ')}...`);
-      
+
       // FIRST: Check for known nearby destination fallbacks (e.g., Ocean City NJ -> Atlantic City)
       // This gives more relevant results than falling back to entire state
       const nearbyFallbacks = NEARBY_DESTINATION_FALLBACKS[query.toLowerCase()];
@@ -604,84 +660,96 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
             return name === fallbackName.toLowerCase() || name.includes(fallbackName.toLowerCase());
           });
           if (fallbackMatch) {
-            logger.info(`Using nearby fallback "${fallbackMatch.name}" (ID: ${fallbackMatch.destinationId}) for "${query}"`);
+            logger.info(
+              `Using nearby fallback "${fallbackMatch.name}" (ID: ${fallbackMatch.destinationId}) for "${query}"`
+            );
             return fallbackMatch;
           }
         }
       }
-      
+
       // SECOND: Try to find the hinted region as a destination (e.g., "New Jersey" as a destination)
       // This is a broader fallback if no nearby city is available
       for (const hintVar of expandedHints) {
         // Skip very short or generic terms
         if (hintVar.length < 3 || hintVar === 'us' || hintVar === 'usa') continue;
-        
+
         const regionMatch = destinations.find(d => {
           const name = (d.destinationName || d.name || '').toLowerCase();
           return name === hintVar || name.includes(hintVar);
         });
         if (regionMatch && regionMatch.destinationId !== match.destinationId) {
-          logger.info(`Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`);
+          logger.info(
+            `Using region "${regionMatch.name}" (ID: ${regionMatch.destinationId}) instead of mismatched "${match.name}"`
+          );
           return regionMatch;
         }
       }
-      
+
       // No better match found, return the original with a warning logged
-      logger.warn(`Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`);
+      logger.warn(
+        `Returning "${match.name}" despite hint mismatch - no "${countryHint}" destination found`
+      );
       return match;
     }
   }
-  
+
   if (matches.length === 1) {
     return matches[0];
   }
-  
+
   // Multiple matches - try to disambiguate
-  logger.info(`Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`);
-  
+  logger.info(
+    `Found ${matches.length} matches for "${query}": ${matches.map(m => `${m.name} (parent: ${m.parentDestinationId})`).join(', ')}`
+  );
+
   // If we have a country/state hint, try to find a match whose ancestry includes it
   if (countryHint) {
     // Get all possible names to match against (country aliases + US state variations)
     const hintVariations = [countryHint];
-    
+
     // Add country aliases
     if (COUNTRY_ALIASES[countryHint]) {
       hintVariations.push(...COUNTRY_ALIASES[countryHint]);
     }
-    
+
     // Add US state variations (e.g., "new jersey" -> also check "nj")
     const stateVariations = getStateVariations(countryHint);
     hintVariations.push(...stateVariations);
-    
+
     logger.info(`Disambiguation hints for "${countryHint}": ${hintVariations.join(', ')}`);
-    
+
     // FIRST: Check if any match has the hint in its own name (e.g., "Ocean City, NJ")
     for (const match of matches) {
       const destName = (match.destinationName || match.name || '').toLowerCase();
       if (hintVariations.some(hint => destName.includes(hint))) {
-        logger.info(`Disambiguated to "${match.name}" based on destination name containing hint "${countryHint}"`);
+        logger.info(
+          `Disambiguated to "${match.name}" based on destination name containing hint "${countryHint}"`
+        );
         return match;
       }
     }
-    
+
     // Use cached destination map for ancestry lookup
     const destMap = getDestinationMap(destinations);
-    
+
     for (const match of matches) {
       // Check the ancestry of this destination for the hint
       let currentDest = match;
       let depth = 0;
       const maxDepth = 5; // Prevent infinite loops
-      
+
       while (currentDest && depth < maxDepth) {
         const parentName = (currentDest.destinationName || currentDest.name || '').toLowerCase();
-        
+
         // Check if any parent matches the hint variations
         if (hintVariations.some(hint => parentName.includes(hint))) {
-          logger.info(`Disambiguated to "${match.name}" based on hint "${countryHint}" (matched parent: ${parentName})`);
+          logger.info(
+            `Disambiguated to "${match.name}" based on hint "${countryHint}" (matched parent: ${parentName})`
+          );
           return match;
         }
-        
+
         // Move up the ancestry chain
         if (currentDest.parentDestinationId) {
           currentDest = destMap.get(currentDest.parentDestinationId);
@@ -691,7 +759,7 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         depth++;
       }
     }
-    
+
     // Also check if any match has the hint in its parent name directly
     for (const match of matches) {
       const parentId = match.parentDestinationId;
@@ -700,25 +768,29 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
         if (parent) {
           const parentName = (parent.destinationName || parent.name || '').toLowerCase();
           if (hintVariations.some(hint => parentName.includes(hint))) {
-            logger.info(`Disambiguated to "${match.name}" based on direct parent match "${parentName}"`);
+            logger.info(
+              `Disambiguated to "${match.name}" based on direct parent match "${parentName}"`
+            );
             return match;
           }
         }
       }
     }
-    
+
     logger.info(`Hint "${countryHint}" did not help disambiguate`);
   }
-  
+
   // If we have state context, prefer match with correct parent
   if (stateContext && stateContext.parentId) {
     const stateMatch = matches.find(m => m.parentDestinationId === stateContext.parentId);
     if (stateMatch) {
-      logger.info(`Disambiguated to "${stateMatch.name}" based on state context (parent: ${stateContext.parentId})`);
+      logger.info(
+        `Disambiguated to "${stateMatch.name}" based on state context (parent: ${stateContext.parentId})`
+      );
       return stateMatch;
     }
   }
-  
+
   // Prefer destinations with higher lookup frequency (major cities tend to have lower IDs in Viator)
   // Also prefer CITY type over REGION or other types
   matches.sort((a, b) => {
@@ -726,12 +798,14 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
     const aIsCity = a.type === 'CITY' ? 1 : 0;
     const bIsCity = b.type === 'CITY' ? 1 : 0;
     if (aIsCity !== bIsCity) return bIsCity - aIsCity;
-    
+
     // Prefer lower IDs (generally more popular destinations)
     return (a.destinationId || 999999) - (b.destinationId || 999999);
   });
-  
-  logger.info(`Returning first match after sorting: "${matches[0].name}" (ID: ${matches[0].destinationId})`);
+
+  logger.info(
+    `Returning first match after sorting: "${matches[0].name}" (ID: ${matches[0].destinationId})`
+  );
   return matches[0];
 }
 
@@ -741,14 +815,14 @@ function findDestinationMatch(destinations, query, stateContext = null, countryH
 
 function getViatorSort(sortBy) {
   const sortMap = {
-    'popular': { sort: 'DEFAULT' },
-    'rating': { sort: 'TRAVELER_RATING', order: 'DESCENDING' },
-    'reviews': { sort: 'DEFAULT' }, // Will sort by reviewCount client-side
-    'price_low': { sort: 'PRICE', order: 'ASCENDING' },
-    'price_high': { sort: 'PRICE', order: 'DESCENDING' },
-    'newest': { sort: 'DATE_ADDED', order: 'DESCENDING' },
-    'duration_short': { sort: 'ITINERARY_DURATION', order: 'ASCENDING' },
-    'duration_long': { sort: 'ITINERARY_DURATION', order: 'DESCENDING' }
+    popular: { sort: 'DEFAULT' },
+    rating: { sort: 'TRAVELER_RATING', order: 'DESCENDING' },
+    reviews: { sort: 'DEFAULT' }, // Will sort by reviewCount client-side
+    price_low: { sort: 'PRICE', order: 'ASCENDING' },
+    price_high: { sort: 'PRICE', order: 'DESCENDING' },
+    newest: { sort: 'DATE_ADDED', order: 'DESCENDING' },
+    duration_short: { sort: 'ITINERARY_DURATION', order: 'ASCENDING' },
+    duration_long: { sort: 'ITINERARY_DURATION', order: 'DESCENDING' },
   };
   return sortMap[sortBy] || { sort: 'DEFAULT' };
 }
@@ -758,23 +832,24 @@ function getViatorSort(sortBy) {
 // ============================================================================
 
 function applyFilters(filtering, options) {
-  const { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating } = options;
-  
+  const { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating } =
+    options;
+
   if (startDate) filtering.startDate = startDate;
   if (endDate) filtering.endDate = endDate;
-  
+
   if (flags && flags.length > 0) {
     filtering.flags = flags;
     logger.info(`Applied flags filter: [${flags.join(', ')}]`);
   }
-  
+
   if (minPrice !== undefined && minPrice !== null) {
     filtering.lowestPrice = minPrice;
   }
   if (maxPrice !== undefined && maxPrice !== null) {
     filtering.highestPrice = maxPrice;
   }
-  
+
   if (minDuration !== undefined || maxDuration !== undefined) {
     filtering.durationInMinutes = {};
     if (minDuration !== undefined && minDuration !== null) {
@@ -785,7 +860,7 @@ function applyFilters(filtering, options) {
     }
     logger.info(`Applied duration filter: ${minDuration || 0}-${maxDuration || '∞'} minutes`);
   }
-  
+
   if (minRating !== undefined && minRating !== null && minRating > 0) {
     filtering.rating = { from: minRating };
     logger.info(`Applied rating filter: ${minRating}+ stars`);
@@ -813,20 +888,20 @@ function applyFilters(filtering, options) {
  * @param {number} params.maxDuration - Optional maximum duration in minutes
  * @param {number} params.minRating - Optional minimum rating (1-5)
  */
-export async function searchTours({ 
-  destination, 
-  destinationId = null,  // NEW: Accept destination ID directly
-  searchTerms = '', 
+export async function searchTours({
+  destination,
+  destinationId = null, // NEW: Accept destination ID directly
+  searchTerms = '',
   resultCount = 10,
   sortBy = 'popular',
-  startDate, 
+  startDate,
   endDate,
   flags = [],
   minPrice,
   maxPrice,
   minDuration,
   maxDuration,
-  minRating
+  minRating,
 }) {
   if (!API_KEY) {
     throw new Error('VIATOR_API_KEY not configured');
@@ -834,20 +909,39 @@ export async function searchTours({
 
   // Build filters summary for logging
   const filterSummary = [];
-  if (startDate || endDate) filterSummary.push(`dates: ${startDate || 'any'} to ${endDate || 'any'}`);
+  if (startDate || endDate)
+    filterSummary.push(`dates: ${startDate || 'any'} to ${endDate || 'any'}`);
   if (flags.length > 0) filterSummary.push(`flags: ${flags.join(',')}`);
   if (minPrice || maxPrice) filterSummary.push(`price: ${minPrice || 0}-${maxPrice || '∞'}`);
-  if (minDuration || maxDuration) filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
+  if (minDuration || maxDuration)
+    filterSummary.push(`duration: ${minDuration || 0}-${maxDuration || '∞'}min`);
   if (minRating) filterSummary.push(`rating: ${minRating}+`);
 
-  logger.info(`Searching ALL tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`);
+  logger.info(
+    `Searching ALL tours: ${destination}${destinationId ? ` (ID: ${destinationId})` : ''}, terms: "${searchTerms}", sort: ${sortBy}${filterSummary.length ? ', ' + filterSummary.join(', ') : ''}`
+  );
 
   try {
-    const filterOptions = { startDate, endDate, flags, minPrice, maxPrice, minDuration, maxDuration, minRating };
-    
-    // Use searchByDestinationId for all searches - it handles pagination to get ALL results
-    return await searchByDestinationId(destination, resultCount, searchTerms, sortBy, filterOptions, destinationId);
+    const filterOptions = {
+      startDate,
+      endDate,
+      flags,
+      minPrice,
+      maxPrice,
+      minDuration,
+      maxDuration,
+      minRating,
+    };
 
+    // Use searchByDestinationId for all searches - it handles pagination to get ALL results
+    return await searchByDestinationId(
+      destination,
+      resultCount,
+      searchTerms,
+      sortBy,
+      filterOptions,
+      destinationId
+    );
   } catch (error) {
     logger.error('Tour search error:', error);
     throw error;
@@ -858,7 +952,14 @@ export async function searchTours({
 // SEARCH BY DESTINATION ID (with Redis caching)
 // ============================================================================
 
-async function searchByDestinationId(destination, resultCount, filterTerms = '', sortBy = 'popular', filterOptions = {}, providedDestinationId = null) {
+async function searchByDestinationId(
+  destination,
+  resultCount,
+  filterTerms = '',
+  sortBy = 'popular',
+  filterOptions = {},
+  providedDestinationId = null
+) {
   let destInfo;
 
   // Use provided destination ID if available
@@ -897,17 +998,20 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     const cached = await cacheGet(cacheKey);
     if (cached && cached.length > 0) {
       logger.info(`Redis cache HIT for ${destination} (${cached.length} tours)`);
-      
+
       // Apply any runtime text filtering
       let products = cached;
       if (filterTerms && tags.length === 0) {
-        const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
+        const filterWords = filterTerms
+          .toLowerCase()
+          .split(' ')
+          .filter(w => w.length > 2);
         products = products.filter(p => {
           const searchText = `${p.name || ''} ${p.description || ''}`.toLowerCase();
           return filterWords.some(word => searchText.includes(word));
         });
       }
-      
+
       return products;
     }
     logger.info(`Redis cache MISS for ${destination}`);
@@ -916,16 +1020,18 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   // =========================================================================
   // FETCH FROM VIATOR API
   // =========================================================================
-  
-  logger.info(`Fetching from Viator: destination=${destInfo.id} (${destInfo.name}), tags=[${tags.join(',')}], sort=${sortBy}`);
+
+  logger.info(
+    `Fetching from Viator: destination=${destInfo.id} (${destInfo.name}), tags=[${tags.join(',')}], sort=${sortBy}`
+  );
 
   // Helper to build search request body
-  const buildSearchBody = (startIndex) => {
+  const buildSearchBody = startIndex => {
     const body = {
       filtering: { destination: String(destInfo.id) },
       sorting: viatorSort,
       pagination: { start: startIndex, count: PAGE_SIZE },
-      currency: 'USD'
+      currency: 'USD',
     };
     if (tags.length > 0) body.filtering.tags = tags;
     applyFilters(body.filtering, filterOptions);
@@ -938,16 +1044,16 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
   };
 
   // Helper to fetch a single page
-  const fetchPage = async (startIndex) => {
+  const fetchPage = async startIndex => {
     const response = await fetchWithTimeout(`${VIATOR_API_BASE}/products/search`, {
       method: 'POST',
       headers: {
         'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
+        Accept: 'application/json;version=2.0',
         'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildSearchBody(startIndex))
+      body: JSON.stringify(buildSearchBody(startIndex)),
     });
 
     if (!response.ok) {
@@ -1010,7 +1116,7 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
       filtering: { destination: String(destInfo.id) },
       sorting: viatorSort,
       pagination: { start: 1, count: PAGE_SIZE },
-      currency: 'USD'
+      currency: 'USD',
     };
     applyFilters(retryBody.filtering, filterOptions);
 
@@ -1018,11 +1124,11 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
       method: 'POST',
       headers: {
         'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
+        Accept: 'application/json;version=2.0',
         'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(retryBody)
+      body: JSON.stringify(retryBody),
     });
 
     if (retryResponse.ok) {
@@ -1035,7 +1141,10 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
 
   // Apply client-side text filtering if needed
   if (filterTerms && products.length > 0 && tags.length === 0) {
-    const filterWords = filterTerms.toLowerCase().split(' ').filter(w => w.length > 2);
+    const filterWords = filterTerms
+      .toLowerCase()
+      .split(' ')
+      .filter(w => w.length > 2);
     const filteredProducts = products.filter(product => {
       const title = (product.title || '').toLowerCase();
       const description = (product.description || '').toLowerCase();
@@ -1071,7 +1180,9 @@ async function searchByDestinationId(destination, resultCount, filterTerms = '',
     const ttl = 3600; // 1 hour cache
     const cached = await cacheSet(cacheKey, formattedResults, ttl);
     if (cached) {
-      logger.info(`Redis cache STORE: ${formattedResults.length} tours for ${destination} (TTL: ${ttl}s)`);
+      logger.info(
+        `Redis cache STORE: ${formattedResults.length} tours for ${destination} (TTL: ${ttl}s)`
+      );
     }
   }
 
@@ -1090,9 +1201,11 @@ async function resolveLocationReferences(locationRefs) {
   }
 
   // Filter out invalid refs and deduplicate
-  const validRefs = [...new Set(
-    locationRefs.filter(ref => ref && typeof ref === 'string' && ref.startsWith('LOC-'))
-  )];
+  const validRefs = [
+    ...new Set(
+      locationRefs.filter(ref => ref && typeof ref === 'string' && ref.startsWith('LOC-'))
+    ),
+  ];
 
   if (validRefs.length === 0) {
     return {};
@@ -1105,13 +1218,13 @@ async function resolveLocationReferences(locationRefs) {
       method: 'POST',
       headers: {
         'exp-api-key': API_KEY,
-        'Accept': 'application/json;version=2.0',
+        Accept: 'application/json;version=2.0',
         'Accept-Language': 'en-US',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        locations: validRefs
-      })
+        locations: validRefs,
+      }),
     });
 
     if (!response.ok) {
@@ -1131,14 +1244,13 @@ async function resolveLocationReferences(locationRefs) {
           address: loc.address || null,
           center: loc.center || null,
           provider: loc.provider || null,
-          providerReference: loc.providerReference || null
+          providerReference: loc.providerReference || null,
         };
       }
     }
 
     logger.info(`Resolved ${Object.keys(locationMap).length} of ${validRefs.length} locations`);
     return locationMap;
-
   } catch (error) {
     logger.error('Error resolving location references:', error);
     return {};
@@ -1218,7 +1330,7 @@ function enhanceItineraryWithNames(itinerary, locationMap) {
   if (!itinerary || Object.keys(locationMap).length === 0) return itinerary;
 
   // Helper to get resolved name for a reference
-  const getResolvedName = (ref) => locationMap[ref]?.name || null;
+  const _getResolvedName = ref => locationMap[ref]?.name || null;
 
   // STANDARD itinerary - itineraryItems[]
   if (itinerary.itineraryItems) {
@@ -1316,9 +1428,9 @@ export async function getTourDetails(productCode) {
     method: 'GET',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
-      'Accept-Language': 'en-US'
-    }
+      Accept: 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+    },
   });
 
   if (!response.ok) {
@@ -1326,7 +1438,7 @@ export async function getTourDetails(productCode) {
   }
 
   const product = await response.json();
-  
+
   // Debug logging to see what Viator returns
   logger.info(`Tour ${productCode} raw data:`, {
     hasImages: !!product.images,
@@ -1340,7 +1452,7 @@ export async function getTourDetails(productCode) {
     privateTour: product.itinerary?.privateTour,
     hasPricing: !!product.pricing,
     pricingSummary: product.pricing?.summary,
-    hasPricingInfo: !!product.pricingInfo
+    hasPricingInfo: !!product.pricingInfo,
   });
 
   // =========================================================================
@@ -1351,17 +1463,19 @@ export async function getTourDetails(productCode) {
     try {
       // Extract all location references from the itinerary
       const locationRefs = extractLocationRefs(product.itinerary);
-      
+
       if (locationRefs.length > 0) {
         logger.info(`Found ${locationRefs.length} location references to resolve`);
-        
+
         // Resolve references to actual names via Viator API
         const locationMap = await resolveLocationReferences(locationRefs);
-        
+
         // Enhance the itinerary with resolved names
         if (Object.keys(locationMap).length > 0) {
           enhanceItineraryWithNames(product.itinerary, locationMap);
-          logger.info(`Enhanced itinerary with ${Object.keys(locationMap).length} resolved locations`);
+          logger.info(
+            `Enhanced itinerary with ${Object.keys(locationMap).length} resolved locations`
+          );
         }
       }
     } catch (error) {
@@ -1369,7 +1483,7 @@ export async function getTourDetails(productCode) {
       // Continue without resolved names - formatTourResult will use fallbacks
     }
   }
-  
+
   return formatTourResult(product);
 }
 
@@ -1380,18 +1494,18 @@ export async function getTourDetails(productCode) {
 function formatTourResult(product) {
   // Price extraction with multiple fallbacks
   let price = product.pricing?.summary?.fromPrice || 0;
-  
+
   // Fallback to pricingInfo if pricing.summary is missing
   if (!price && product.pricingInfo) {
     // Try to get from ageBands (adult price)
-    const adultBand = product.pricingInfo.ageBands?.find(b => 
-      b.ageBand === 'ADULT' || b.ageBand === 'TRAVELER'
+    const adultBand = product.pricingInfo.ageBands?.find(
+      b => b.ageBand === 'ADULT' || b.ageBand === 'TRAVELER'
     );
     if (adultBand) {
       price = adultBand.prices?.[0]?.price || adultBand.retailPrice || 0;
     }
   }
-  
+
   // Check for original price before discount (for special offers)
   const originalPrice = product.pricing?.summary?.fromPriceBeforeDiscount || null;
   const hasDiscount = originalPrice && originalPrice > price;
@@ -1399,34 +1513,35 @@ function formatTourResult(product) {
   // Determine pricing type - crucial for correct price display
   // Viator uses: TRAVELLER (per person), UNIT (per group/vehicle), etc.
   // If pricingUnit is UNIT or if it's a private tour, it's likely per-group pricing
-  const pricingUnit = product.pricing?.summary?.pricingUnit || 
-                      product.pricingInfo?.type || 
-                      'TRAVELLER'; // Default to per-person
-  
+  const pricingUnit =
+    product.pricing?.summary?.pricingUnit || product.pricingInfo?.type || 'TRAVELLER'; // Default to per-person
+
   // Also check if tour name suggests it's a private/group tour
   const title = (product.title || '').toLowerCase();
-  const isPrivateTour = title.includes('private') || 
-                        title.includes('per group') ||
-                        title.includes('per vehicle') ||
-                        title.includes('charter');
-  
+  const isPrivateTour =
+    title.includes('private') ||
+    title.includes('per group') ||
+    title.includes('per vehicle') ||
+    title.includes('charter');
+
   // Determine if price is per person or per group
-  const isPerPerson = pricingUnit === 'TRAVELLER' || 
-                      pricingUnit === 'PER_PERSON' ||
-                      pricingUnit === 'PERSON';
-  const isPerGroup = pricingUnit === 'UNIT' || 
-                     pricingUnit === 'PER_GROUP' ||
-                     pricingUnit === 'GROUP' ||
-                     pricingUnit === 'VEHICLE' ||
-                     isPrivateTour;
-  
+  const _isPerPerson =
+    pricingUnit === 'TRAVELLER' || pricingUnit === 'PER_PERSON' || pricingUnit === 'PERSON';
+  const isPerGroup =
+    pricingUnit === 'UNIT' ||
+    pricingUnit === 'PER_GROUP' ||
+    pricingUnit === 'GROUP' ||
+    pricingUnit === 'VEHICLE' ||
+    isPrivateTour;
+
   // Final pricing type: 'person' or 'group'
   const pricingType = isPerGroup ? 'group' : 'person';
-  
+
   // Get max group size if available (for per-group pricing)
-  const maxGroupSize = product.pricing?.summary?.paxRange?.max || 
-                       product.pricingInfo?.groupPricing?.maxGroupSize ||
-                       null;
+  const maxGroupSize =
+    product.pricing?.summary?.paxRange?.max ||
+    product.pricingInfo?.groupPricing?.maxGroupSize ||
+    null;
 
   // Duration - handle various formats
   let duration = 'Varies';
@@ -1452,21 +1567,25 @@ function formatTourResult(product) {
 
   // Get multiple images for gallery
   let images = [];
-  
+
   // Try images array first (from search results)
   if (product.images && product.images.length > 0) {
-    images = product.images.slice(0, 8).map(img => {
-      // Handle different image formats
-      if (typeof img === 'string') return img;
-      
-      // Find best variant (prefer medium size)
-      const variant = img.variants?.find(v => v.width >= 400 && v.width <= 720) ||
-                      img.variants?.find(v => v.width >= 200) ||
-                      img.variants?.[img.variants.length - 1];
-      return variant?.url || img.url;
-    }).filter(Boolean);
+    images = product.images
+      .slice(0, 8)
+      .map(img => {
+        // Handle different image formats
+        if (typeof img === 'string') return img;
+
+        // Find best variant (prefer medium size)
+        const variant =
+          img.variants?.find(v => v.width >= 400 && v.width <= 720) ||
+          img.variants?.find(v => v.width >= 200) ||
+          img.variants?.[img.variants.length - 1];
+        return variant?.url || img.url;
+      })
+      .filter(Boolean);
   }
-  
+
   // Fallback: try photoUrl or coverPhoto (some API responses use these)
   if (images.length === 0 && product.photoUrl) {
     images = [product.photoUrl];
@@ -1474,156 +1593,187 @@ function formatTourResult(product) {
   if (images.length === 0 && product.coverPhoto?.url) {
     images = [product.coverPhoto.url];
   }
-  
+
   // Log for debugging
   logger.debug(`Images extracted for ${product.productCode}: ${images.length} images`);
-  
+
   const image = images[0] || null;
 
   const productCode = product.productCode;
   const bookingLink = product.productUrl || buildAffiliateLink(productCode);
 
   // Helper to safely extract string from potentially nested objects
-  const extractString = (value) => {
+  const extractString = value => {
     if (!value) return null;
     if (typeof value === 'string') return value;
     if (typeof value === 'object') {
       // Handle {type, description} or {description} objects
-      return value.description || value.otherDescription || value.typeDescription || value.name || value.type || JSON.stringify(value);
+      return (
+        value.description ||
+        value.otherDescription ||
+        value.typeDescription ||
+        value.name ||
+        value.type ||
+        JSON.stringify(value)
+      );
     }
     return String(value);
   };
 
   // Extract highlights/inclusions - handle nested objects
-  const inclusions = product.inclusions?.map(i => {
-    const desc = i.otherDescription || i.typeDescription || i.description || i;
-    return extractString(desc);
-  }).filter(Boolean) || [];
-  
-  const exclusions = product.exclusions?.map(e => {
-    const desc = e.otherDescription || e.typeDescription || e.description || e;
-    return extractString(desc);
-  }).filter(Boolean) || [];
-  
+  const inclusions =
+    product.inclusions
+      ?.map(i => {
+        const desc = i.otherDescription || i.typeDescription || i.description || i;
+        return extractString(desc);
+      })
+      .filter(Boolean) || [];
+
+  const exclusions =
+    product.exclusions
+      ?.map(e => {
+        const desc = e.otherDescription || e.typeDescription || e.description || e;
+        return extractString(desc);
+      })
+      .filter(Boolean) || [];
+
   // Extract itinerary/highlights
   // POI name can be in multiple places depending on the Viator response structure
-  const itinerary = product.itinerary?.itineraryItems?.map(item => {
-    const poiLocation = item.pointOfInterestLocation?.location;
+  const itinerary =
+    product.itinerary?.itineraryItems
+      ?.map(item => {
+        const poiLocation = item.pointOfInterestLocation?.location;
 
-    let poiName = null;
-    
-    // FIRST: Check for resolved location name (from /locations/bulk API call)
-    if (item.resolvedLocation?.name) {
-      poiName = item.resolvedLocation.name;
-    }
-    // SECOND: Check pointOfInterestLocation.name (also set by enhancement)
-    else if (item.pointOfInterestLocation?.name) {
-      poiName = typeof item.pointOfInterestLocation.name === 'string'
-        ? item.pointOfInterestLocation.name
-        : item.pointOfInterestLocation.name?.en || Object.values(item.pointOfInterestLocation.name)[0];
-    }
-    // THIRD: Check the nested location.name
-    else if (poiLocation?.name) {
-      poiName = typeof poiLocation.name === 'string'
-        ? poiLocation.name
-        : poiLocation.name?.en || poiLocation.name?.content || Object.values(poiLocation.name)[0];
-    }
+        let poiName = null;
 
-    // Check for attraction name directly on the location
-    if (!poiName && poiLocation?.attractionName) {
-      poiName = poiLocation.attractionName;
-    }
-
-    // Check for POI object directly on the item
-    if (!poiName && item.poi?.name) {
-      poiName = extractString(item.poi.name);
-    }
-
-    // Check for name directly on the item
-    if (!poiName && item.name) {
-      poiName = extractString(item.name);
-    }
-
-    // The description typically contains what you do there (e.g., "Pass By", "Stop At")
-    const stopType = extractString(item.description) || '';
-
-    // If we still don't have a POI name, try extracting from description
-    if (!poiName) {
-      const genericDescriptions = ['pass by', 'stop at', 'admission ticket', 'photo stop'];
-      const descLower = stopType.toLowerCase();
-      if (genericDescriptions.some(gd => descLower === gd || descLower.startsWith(gd + ':'))) {
-        if (stopType.includes(':')) {
-          poiName = stopType.split(':').slice(1).join(':').trim();
+        // FIRST: Check for resolved location name (from /locations/bulk API call)
+        if (item.resolvedLocation?.name) {
+          poiName = item.resolvedLocation.name;
         }
-      }
-      if (!poiName && stopType.length > 20) {
-        poiName = stopType;
-      }
-    }
+        // SECOND: Check pointOfInterestLocation.name (also set by enhancement)
+        else if (item.pointOfInterestLocation?.name) {
+          poiName =
+            typeof item.pointOfInterestLocation.name === 'string'
+              ? item.pointOfInterestLocation.name
+              : item.pointOfInterestLocation.name?.en ||
+                Object.values(item.pointOfInterestLocation.name)[0];
+        }
+        // THIRD: Check the nested location.name
+        else if (poiLocation?.name) {
+          poiName =
+            typeof poiLocation.name === 'string'
+              ? poiLocation.name
+              : poiLocation.name?.en ||
+                poiLocation.name?.content ||
+                Object.values(poiLocation.name)[0];
+        }
 
-    // NEVER use LOC-xxx ref as a name - skip those items or use description
-    if (!poiName || poiName.startsWith('LOC-') || poiName.toLowerCase() === 'pass by' || poiName.toLowerCase() === 'stop at') {
-      return null;
-    }
+        // Check for attraction name directly on the location
+        if (!poiName && poiLocation?.attractionName) {
+          poiName = poiLocation.attractionName;
+        }
 
-    return {
-      name: extractString(poiName),
-      description: stopType || 'Visit',
-      duration: item.duration?.fixedDurationInMinutes
-    };
-  }).filter(Boolean) || [];
+        // Check for POI object directly on the item
+        if (!poiName && item.poi?.name) {
+          poiName = extractString(item.poi.name);
+        }
+
+        // Check for name directly on the item
+        if (!poiName && item.name) {
+          poiName = extractString(item.name);
+        }
+
+        // The description typically contains what you do there (e.g., "Pass By", "Stop At")
+        const stopType = extractString(item.description) || '';
+
+        // If we still don't have a POI name, try extracting from description
+        if (!poiName) {
+          const genericDescriptions = ['pass by', 'stop at', 'admission ticket', 'photo stop'];
+          const descLower = stopType.toLowerCase();
+          if (genericDescriptions.some(gd => descLower === gd || descLower.startsWith(gd + ':'))) {
+            if (stopType.includes(':')) {
+              poiName = stopType.split(':').slice(1).join(':').trim();
+            }
+          }
+          if (!poiName && stopType.length > 20) {
+            poiName = stopType;
+          }
+        }
+
+        // NEVER use LOC-xxx ref as a name - skip those items or use description
+        if (
+          !poiName ||
+          poiName.startsWith('LOC-') ||
+          poiName.toLowerCase() === 'pass by' ||
+          poiName.toLowerCase() === 'stop at'
+        ) {
+          return null;
+        }
+
+        return {
+          name: extractString(poiName),
+          description: stopType || 'Visit',
+          duration: item.duration?.fixedDurationInMinutes,
+        };
+      })
+      .filter(Boolean) || [];
 
   // Additional info - ensure all items are strings
-  const additionalInfo = (product.additionalInfo || []).map(info => extractString(info)).filter(Boolean);
-  
+  const additionalInfo = (product.additionalInfo || [])
+    .map(info => extractString(info))
+    .filter(Boolean);
+
   // Extract highlights from viatorUniqueContent (Viator's curated highlights)
   const highlights = product.viatorUniqueContent?.highlights || [];
-  
+
   // Also get insider tips if available
   const insiderTips = product.viatorUniqueContent?.insiderTips || null;
-  
+
   const cancellationPolicy = product.cancellationPolicy?.type || null;
-  
+
   // ========================================================================
   // DERIVE FLAGS from API response fields
   // The product details endpoint doesn't return flags directly, so we derive them
   // ========================================================================
-  let derivedFlags = [];
-  
+  const derivedFlags = [];
+
   // FREE_CANCELLATION: cancellationPolicy.type is NOT 'ALL_SALES_FINAL'
   if (cancellationPolicy && cancellationPolicy !== 'ALL_SALES_FINAL') {
     derivedFlags.push('FREE_CANCELLATION');
   }
-  
+
   // SKIP_THE_LINE: itinerary.skipTheLine is true
   if (product.itinerary?.skipTheLine === true) {
     derivedFlags.push('SKIP_THE_LINE');
   }
-  
+
   // PRIVATE_TOUR: itinerary.privateTour is true OR title suggests private
   if (product.itinerary?.privateTour === true || isPrivateTour) {
     derivedFlags.push('PRIVATE_TOUR');
   }
-  
+
   // SPECIAL_OFFER: has discount pricing
   if (hasDiscount) {
     derivedFlags.push('SPECIAL_OFFER');
   }
-  
+
   // LIKELY_TO_SELL_OUT: check tags for 20757 or high review count with high rating
   const tags = product.tags || [];
   if (tags.includes(20757) || (reviewCount > 500 && parseFloat(rating) >= 4.5)) {
     derivedFlags.push('LIKELY_TO_SELL_OUT');
   }
-  
+
   // Merge with any flags from search results (if present)
   const flags = [...new Set([...(product.flags || []), ...derivedFlags])];
-  
+
   // Languages - handle potential object format
-  const languages = product.languageGuides?.map(lg => {
-    if (typeof lg === 'string') return lg;
-    return lg.language || lg.name || extractString(lg);
-  }).filter(Boolean) || [];
+  const languages =
+    product.languageGuides
+      ?.map(lg => {
+        if (typeof lg === 'string') return lg;
+        return lg.language || lg.name || extractString(lg);
+      })
+      .filter(Boolean) || [];
 
   return {
     id: productCode,
@@ -1634,29 +1784,29 @@ function formatTourResult(product) {
     rating,
     reviewCount,
     price,
-    originalPrice,      // Original price before discount (null if no discount)
-    hasDiscount,        // True if this tour has a special offer discount
+    originalPrice, // Original price before discount (null if no discount)
+    hasDiscount, // True if this tour has a special offer discount
     currency: 'USD',
     image,
-    images,             // Array of image URLs for gallery
-    flags,              // Derived flags array
+    images, // Array of image URLs for gallery
+    flags, // Derived flags array
     bookingLink,
     link: bookingLink,
     productCode,
     // Pricing type information
-    pricingType,        // 'person' or 'group'
-    pricingUnit,        // Raw value from API
-    maxGroupSize,       // Max travelers for group pricing
-    isPrivateTour,      // True if name suggests private tour
+    pricingType, // 'person' or 'group'
+    pricingUnit, // Raw value from API
+    maxGroupSize, // Max travelers for group pricing
+    isPrivateTour, // True if name suggests private tour
     // Additional details for modal
-    highlights,         // From viatorUniqueContent.highlights
-    insiderTips,        // From viatorUniqueContent.insiderTips
+    highlights, // From viatorUniqueContent.highlights
+    insiderTips, // From viatorUniqueContent.insiderTips
     inclusions,
     exclusions,
     itinerary,
     additionalInfo,
     cancellationPolicy,
-    languages
+    languages,
   };
 }
 
@@ -1665,7 +1815,7 @@ function buildAffiliateLink(productCode) {
     pid: AFFILIATE_ID || 'P00278785',
     mcid: '42383',
     medium: 'api',
-    api_version: '2.0'
+    api_version: '2.0',
   });
   return `https://www.viator.com/tours/${productCode}?${params.toString()}`;
 }
@@ -1677,12 +1827,12 @@ function buildAffiliateLink(productCode) {
 export async function debugSearchDestinations(query) {
   const destinations = await fetchDestinations();
   const normalizedQuery = query.toLowerCase().trim();
-  
+
   const matches = destinations.filter(dest => {
     const name = (dest.name || '').toLowerCase();
     return name.includes(normalizedQuery);
   });
-  
+
   return {
     query,
     totalDestinations: destinations.length,
@@ -1691,8 +1841,8 @@ export async function debugSearchDestinations(query) {
       id: d.destinationId,
       name: d.name,
       type: d.type,
-      parentId: d.parentDestinationId
-    }))
+      parentId: d.parentDestinationId,
+    })),
   };
 }
 
@@ -1710,21 +1860,21 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
   try {
     const allDestinations = await fetchDestinations();
     const destMap = getDestinationMap(allDestinations);
-    
+
     // Strategy: Combine Viator freetext API with local cache search
     // This ensures we find multiple cities with the same name (Paris, France vs Paris, Texas)
-    
+
     let apiResults = [];
-    
+
     // Try the Viator freetext API first
     try {
       const response = await fetchWithTimeout(`${VIATOR_API_BASE}/search/freetext`, {
         method: 'POST',
         headers: {
           'exp-api-key': API_KEY,
-          'Accept': 'application/json;version=2.0',
+          Accept: 'application/json;version=2.0',
           'Accept-Language': 'en-US',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           searchTerm: searchTerm,
@@ -1733,43 +1883,43 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
               searchType: 'DESTINATIONS',
               pagination: {
                 start: 1,
-                count: limit
-              }
-            }
+                count: limit,
+              },
+            },
           ],
-          currency: 'USD'
-        })
+          currency: 'USD',
+        }),
       });
 
       if (response.ok) {
         const data = await response.json();
         const destinations = data.destinations?.results || [];
-        
+
         apiResults = destinations.map(d => {
           const destId = d.id || d.destinationId;
           const cachedDest = destMap.get(destId);
           const destType = cachedDest?.type || 'DESTINATION';
           const name = d.name || d.destinationName;
           const displayName = buildDisplayName(name, destId, destType, destMap);
-          
+
           return {
             destinationId: destId?.toString(),
             name: name,
             type: destType,
             parentName: d.parentDestinationName || null,
             displayName: displayName,
-            source: 'api'
+            source: 'api',
           };
         });
       }
     } catch (apiError) {
       logger.warn(`Freetext API failed, will use cache only: ${apiError.message}`);
     }
-    
+
     // Also search local cache for additional matches
     // This catches cities the API might miss (like Paris, Texas)
     const searchLower = searchTerm.toLowerCase();
-    
+
     const cacheResults = allDestinations
       .filter(d => {
         if (!d.name) return false;
@@ -1780,38 +1930,38 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
       .map(d => {
         const nameLower = d.name.toLowerCase();
         let score = 0;
-        
+
         // Exact match gets highest score
         if (nameLower === searchLower) score = 100;
         // Starts with search term
         else if (nameLower.startsWith(searchLower)) score = 80;
-        
+
         // Boost cities over regions/countries
         if (d.type === 'CITY') score += 15;
         else if (d.type === 'REGION') score += 5;
-        
+
         return { ...d, score };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit * 2) // Get extra for deduplication
       .map(d => {
         const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
-        
+
         return {
           destinationId: d.destinationId?.toString(),
           name: d.name,
           type: d.type || 'CITY',
           parentName: null,
           displayName: displayName,
-          source: 'cache'
+          source: 'cache',
         };
       });
-    
+
     // Merge and deduplicate results
     // Prefer API results, then add unique cache results
     const seenIds = new Set();
     const mergedResults = [];
-    
+
     // Add API results first (higher quality matching)
     for (const result of apiResults) {
       if (!seenIds.has(result.destinationId)) {
@@ -1819,7 +1969,7 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         mergedResults.push(result);
       }
     }
-    
+
     // Add cache results that weren't in API results
     for (const result of cacheResults) {
       if (!seenIds.has(result.destinationId) && mergedResults.length < limit) {
@@ -1827,13 +1977,14 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
         mergedResults.push(result);
       }
     }
-    
+
     // Remove the source field before returning
-    const finalResults = mergedResults.slice(0, limit).map(({ source, ...rest }) => rest);
+    const finalResults = mergedResults.slice(0, limit).map(({ source: _source, ...rest }) => rest);
 
-    logger.info(`Autocomplete found ${finalResults.length} destinations for "${searchTerm}" (API: ${apiResults.length}, Cache: ${cacheResults.length})`);
+    logger.info(
+      `Autocomplete found ${finalResults.length} destinations for "${searchTerm}" (API: ${apiResults.length}, Cache: ${cacheResults.length})`
+    );
     return finalResults;
-
   } catch (error) {
     logger.error('Autocomplete search error:', error);
     return fallbackDestinationSearch(searchTerm, limit);
@@ -1850,37 +2001,37 @@ export async function searchDestinationsAutocomplete(searchTerm, limit = 8) {
 function buildDisplayName(name, destId, destType, destMap) {
   // Get the full ancestry chain for this destination
   const ancestry = getDestinationAncestry(destId, destMap);
-  
+
   // Find the country (type === 'COUNTRY') in the ancestry
   const country = ancestry.find(d => d.type === 'COUNTRY');
   const countryName = country?.name || null;
-  
+
   // Handle different destination types
   if (destType === 'COUNTRY') {
     // Countries just show their name
     return name;
   }
-  
+
   if (destType === 'REGION' || destType === 'STATE') {
     // Regions show: "Region, Country"
     return countryName ? `${name}, ${countryName}` : name;
   }
-  
+
   if (destType === 'CITY') {
     // Cities show: "City, Country"
     return countryName ? `${name}, ${countryName}` : name;
   }
-  
+
   // For towns, districts, or other sub-city types, show: "Town, City, Country"
   // Find the parent city in ancestry
   const parentCity = ancestry.find(d => d.type === 'CITY');
-  
+
   if (parentCity && countryName) {
     return `${name}, ${parentCity.name}, ${countryName}`;
   } else if (countryName) {
     return `${name}, ${countryName}`;
   }
-  
+
   // Fallback: just use the immediate parent if we have one
   const cachedDest = destMap.get(destId);
   if (cachedDest?.parentDestinationId) {
@@ -1889,7 +2040,7 @@ function buildDisplayName(name, destId, destType, destMap) {
       return `${name}, ${parent.name}`;
     }
   }
-  
+
   return name;
 }
 
@@ -1900,11 +2051,11 @@ function getDestinationAncestry(destId, destMap, maxDepth = 5) {
   const ancestry = [];
   let currentId = destId;
   let depth = 0;
-  
+
   while (currentId && depth < maxDepth) {
     const dest = destMap.get(currentId);
     if (!dest) break;
-    
+
     // Don't include the destination itself, only its ancestors
     if (dest.parentDestinationId) {
       const parent = destMap.get(dest.parentDestinationId);
@@ -1912,7 +2063,7 @@ function getDestinationAncestry(destId, destMap, maxDepth = 5) {
         ancestry.push({
           id: parent.destinationId,
           name: parent.name,
-          type: parent.type
+          type: parent.type,
         });
         currentId = parent.destinationId;
       } else {
@@ -1921,10 +2072,10 @@ function getDestinationAncestry(destId, destMap, maxDepth = 5) {
     } else {
       break;
     }
-    
+
     depth++;
   }
-  
+
   return ancestry;
 }
 
@@ -1936,36 +2087,35 @@ async function fallbackDestinationSearch(searchTerm, limit = 8) {
     const destinations = await fetchDestinations();
     const searchLower = searchTerm.toLowerCase();
     const destMap = getDestinationMap(destinations);
-    
+
     const scored = destinations
       .filter(d => d.name && d.name.toLowerCase().includes(searchLower))
       .map(d => {
         const nameLower = d.name.toLowerCase();
         let score = 0;
-        
+
         if (nameLower === searchLower) score = 100;
         else if (nameLower.startsWith(searchLower)) score = 80;
         else score = 50;
-        
+
         if (d.type === 'CITY') score += 10;
-        
+
         return { ...d, score };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-    
+
     return scored.map(d => {
       const displayName = buildDisplayName(d.name, d.destinationId, d.type || 'CITY', destMap);
-      
+
       return {
         destinationId: d.destinationId?.toString(),
         name: d.name,
         type: d.type || 'CITY',
         parentName: null,
-        displayName: displayName
+        displayName: displayName,
       };
     });
-
   } catch (error) {
     logger.error('Fallback destination search error:', error);
     return [];
@@ -2093,7 +2243,7 @@ const POPULAR_DESTINATIONS = [
   { name: 'Bahamas' },
   { name: 'Puerto Rico' },
   { name: 'Costa Rica' },
-  { name: 'Panama City' }
+  { name: 'Panama City' },
 ];
 
 /**
@@ -2116,7 +2266,7 @@ export async function warmTourCache() {
         destination: dest.name,
         destinationId: dest.id?.toString(),
         resultCount: 30, // Smaller count for faster warming; users can fetch more on demand
-        sortBy: 'popular'
+        sortBy: 'popular',
       });
 
       successCount++;
@@ -2124,7 +2274,6 @@ export async function warmTourCache() {
 
       // Small delay to be nice to the API
       await new Promise(resolve => setTimeout(resolve, 300));
-
     } catch (error) {
       failCount++;
       logger.warn(`Failed to warm cache for ${dest.name}: ${error.message}`);
@@ -2132,7 +2281,9 @@ export async function warmTourCache() {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  logger.info(`Cache warming complete: ${successCount} succeeded, ${failCount} failed in ${elapsed}s`);
+  logger.info(
+    `Cache warming complete: ${successCount} succeeded, ${failCount} failed in ${elapsed}s`
+  );
 
   return { successCount, failCount, elapsed };
 }
@@ -2151,7 +2302,7 @@ export async function searchAttractions(destinationId, options = {}) {
   const {
     sort = 'DEFAULT', // 'DEFAULT', 'ALPHABETICAL', 'REVIEW_AVG_RATING'
     start = 1,
-    count = 30
+    count = 30,
   } = options;
 
   // Check cache for first page
@@ -2169,15 +2320,15 @@ export async function searchAttractions(destinationId, options = {}) {
     method: 'POST',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
+      Accept: 'application/json;version=2.0',
       'Accept-Language': 'en-US',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       destinationId: parseInt(destinationId),
       sorting: { sort },
-      pagination: { start, count }
-    })
+      pagination: { start, count },
+    }),
   });
 
   if (!response.ok) {
@@ -2206,14 +2357,14 @@ export async function searchAttractions(destinationId, options = {}) {
       productCount: attr.productsCount || attr.productCount || 0,
       rating: attr.reviews?.combinedAverageRating || null,
       reviewCount: attr.reviews?.totalReviews || 0,
-      image: imageUrl
+      image: imageUrl,
     };
   });
 
   const result = {
     attractions,
     totalCount: data.totalCount || attractions.length,
-    hasMore: (start + count - 1) < (data.totalCount || 0)
+    hasMore: start + count - 1 < (data.totalCount || 0),
   };
 
   // Cache first page
@@ -2237,9 +2388,9 @@ export async function getAttractionDetails(attractionId) {
     method: 'GET',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
-      'Accept-Language': 'en-US'
-    }
+      Accept: 'application/json;version=2.0',
+      'Accept-Language': 'en-US',
+    },
   });
 
   if (!response.ok) {
@@ -2248,15 +2399,17 @@ export async function getAttractionDetails(attractionId) {
 
   const attr = await response.json();
 
-  const images = (attr.images || []).map(img => {
-    const variants = img.variants || [];
-    return {
-      small: variants.find(v => v.width >= 200 && v.width < 400)?.url || variants[0]?.url,
-      medium: variants.find(v => v.width >= 400 && v.width < 800)?.url || variants[0]?.url,
-      large: variants.find(v => v.width >= 800)?.url || variants[0]?.url,
-      caption: img.caption
-    };
-  }).filter(img => img.small || img.medium || img.large);
+  const images = (attr.images || [])
+    .map(img => {
+      const variants = img.variants || [];
+      return {
+        small: variants.find(v => v.width >= 200 && v.width < 400)?.url || variants[0]?.url,
+        medium: variants.find(v => v.width >= 400 && v.width < 800)?.url || variants[0]?.url,
+        large: variants.find(v => v.width >= 800)?.url || variants[0]?.url,
+        caption: img.caption,
+      };
+    })
+    .filter(img => img.small || img.medium || img.large);
 
   return {
     attractionId: attr.attractionId,
@@ -2270,10 +2423,12 @@ export async function getAttractionDetails(attractionId) {
     image: images[0]?.medium || images[0]?.large || null,
     images,
     address: attr.address || null,
-    location: attr.center ? {
-      latitude: attr.center.latitude,
-      longitude: attr.center.longitude
-    } : null
+    location: attr.center
+      ? {
+          latitude: attr.center.latitude,
+          longitude: attr.center.longitude,
+        }
+      : null,
   };
 }
 
@@ -2291,7 +2446,7 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
     flags = [],
     minPrice,
     maxPrice,
-    minRating
+    minRating,
   } = options;
 
   logger.info(`Searching tours for attraction seoId: ${seoId}, destinationId: ${destinationId}`);
@@ -2302,17 +2457,17 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
     price_low: { sort: 'PRICE', order: 'ASCENDING' },
     price_high: { sort: 'PRICE', order: 'DESCENDING' },
     rating: { sort: 'REVIEW_AVG_RATING' },
-    newest: { sort: 'DATE_ADDED', order: 'DESCENDING' }
+    newest: { sort: 'DATE_ADDED', order: 'DESCENDING' },
   }[sortBy] || { sort: 'DEFAULT' };
 
   const body = {
     filtering: {
       destination: parseInt(destinationId),
-      attractionId: parseInt(seoId)
+      attractionId: parseInt(seoId),
     },
     sorting: viatorSort,
     pagination: { start, count },
-    currency: 'USD'
+    currency: 'USD',
   };
 
   if (flags.length > 0) body.filtering.flags = flags;
@@ -2324,11 +2479,11 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
     method: 'POST',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
+      Accept: 'application/json;version=2.0',
       'Accept-Language': 'en-US',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -2345,7 +2500,9 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
   // Sort by review count for "popular" since Viator's DEFAULT doesn't
   if (sortBy === 'popular') {
     tours.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
-    logger.info(`Sorted ${tours.length} tours by review count (top: ${tours[0]?.reviewCount || 0} reviews)`);
+    logger.info(
+      `Sorted ${tours.length} tours by review count (top: ${tours[0]?.reviewCount || 0} reviews)`
+    );
   }
 
   logger.info(`Found ${tours.length} tours for seoId ${seoId}`);
@@ -2353,7 +2510,7 @@ export async function searchToursByAttraction(seoId, destinationId, options = {}
   return {
     tours,
     totalCount: data.totalCount || tours.length,
-    hasMore: (start + count - 1) < (data.totalCount || 0)
+    hasMore: start + count - 1 < (data.totalCount || 0),
   };
 }
 
@@ -2374,18 +2531,18 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
     method: 'POST',
     headers: {
       'exp-api-key': API_KEY,
-      'Accept': 'application/json;version=2.0',
+      Accept: 'application/json;version=2.0',
       'Accept-Language': 'en-US',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       searchTerm: searchTerm,
       searchTypes: [
         { searchType: 'DESTINATIONS', pagination: { start: 1, count: limit } },
-        { searchType: 'ATTRACTIONS', pagination: { start: 1, count: limit } }
+        { searchType: 'ATTRACTIONS', pagination: { start: 1, count: limit } },
       ],
-      currency: 'USD'
-    })
+      currency: 'USD',
+    }),
   });
 
   if (!response.ok) {
@@ -2401,10 +2558,8 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
     name: d.name || d.destinationName,
     type: d.type || 'DESTINATION',
     parentName: d.parentDestinationName || null,
-    displayName: d.parentDestinationName
-      ? `${d.name}, ${d.parentDestinationName}`
-      : d.name,
-    resultType: 'destination'
+    displayName: d.parentDestinationName ? `${d.name}, ${d.parentDestinationName}` : d.name,
+    resultType: 'destination',
   }));
 
   // Transform attractions
@@ -2415,13 +2570,13 @@ export async function combinedAutocomplete(searchTerm, limit = 8) {
     name: attr.name,
     destinationName: attr.destinationName || null,
     productCount: attr.productsCount || 0,
-    displayName: attr.destinationName
-      ? `${attr.name}, ${attr.destinationName}`
-      : attr.name,
-    resultType: 'attraction'
+    displayName: attr.destinationName ? `${attr.name}, ${attr.destinationName}` : attr.name,
+    resultType: 'attraction',
   }));
 
-  logger.info(`Combined autocomplete: ${destinations.length} destinations, ${attractions.length} attractions`);
+  logger.info(
+    `Combined autocomplete: ${destinations.length} destinations, ${attractions.length} attractions`
+  );
 
   return { destinations, attractions };
 }
@@ -2442,5 +2597,5 @@ export default {
   searchAttractions,
   getAttractionDetails,
   searchToursByAttraction,
-  combinedAutocomplete
+  combinedAutocomplete,
 };

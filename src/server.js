@@ -13,7 +13,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 import tourRoutes from './routes/tours.js';
 import { warmTourCache, searchDestinationsAutocomplete } from './services/affiliates/viator.js';
 
@@ -38,7 +38,7 @@ dotenv.config();
 
 // Get current directory (needed for ES modules)
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const _dirname = dirname(__filename);
 
 // Initialize Express app
 const app = express();
@@ -52,7 +52,7 @@ app.set('trust proxy', 1);
 // ============================================================================
 
 // Parse JSON request bodies
-app.use(express.json({ limit: '50mb'}));
+app.use(express.json({ limit: '50mb' }));
 
 // Agentic AI route (before CORS to use its own CORS handling)
 app.use('/api/agent', agentRoutes);
@@ -84,14 +84,14 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
   });
 });
 
 // API Routes
-app.use('/api/tracking', trackingRoutes);   // Affiliate tracking endpoint
-app.use('/api/feedback', feedbackRoutes);   // User feedback endpoint
-app.use('/api/identify', identifyRoutes);   // Where is this endpoint
+app.use('/api/tracking', trackingRoutes); // Affiliate tracking endpoint
+app.use('/api/feedback', feedbackRoutes); // User feedback endpoint
+app.use('/api/identify', identifyRoutes); // Where is this endpoint
 
 // Alias for /api/destinations/autocomplete (frontend compatibility)
 // The canonical endpoint is /api/tours/destinations/autocomplete
@@ -116,7 +116,7 @@ app.get('/api/destinations/autocomplete', async (req, res) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
-    path: req.originalUrl
+    path: req.originalUrl,
   });
 });
 
@@ -127,7 +127,7 @@ app.use(errorHandler);
 // START SERVER
 // ============================================================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`🚀 Viaggio.ai Backend running on port ${PORT}`);
   logger.info(`📡 Environment: ${process.env.NODE_ENV}`);
   logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);

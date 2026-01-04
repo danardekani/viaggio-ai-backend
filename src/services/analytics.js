@@ -88,16 +88,16 @@ export async function trackClick(clickData) {
       sessionId: clickData.sessionId, // User session ID
       userAgent: clickData.userAgent,
       referrer: clickData.referrer,
-      metadata: clickData.metadata || {}
+      metadata: clickData.metadata || {},
     };
 
     clicks.push(click);
     await writeData(CLICKS_FILE, clicks);
 
-    logger.info('Affiliate click tracked', { 
-      id: click.id, 
+    logger.info('Affiliate click tracked', {
+      id: click.id,
       type: click.type,
-      provider: click.provider 
+      provider: click.provider,
     });
 
     return click;
@@ -121,7 +121,7 @@ export async function getClickStats() {
       byProvider: {},
       last24Hours: 0,
       last7Days: 0,
-      last30Days: 0
+      last30Days: 0,
     };
 
     const now = new Date();
@@ -171,15 +171,15 @@ export async function saveFeedback(feedbackData) {
       comment: feedbackData.comment,
       sessionId: feedbackData.sessionId,
       page: feedbackData.page, // Where feedback was given
-      metadata: feedbackData.metadata || {}
+      metadata: feedbackData.metadata || {},
     };
 
     feedbacks.push(feedback);
     await writeData(FEEDBACK_FILE, feedbacks);
 
-    logger.info('User feedback saved', { 
-      id: feedback.id, 
-      rating: feedback.rating 
+    logger.info('User feedback saved', {
+      id: feedback.id,
+      rating: feedback.rating,
     });
 
     return feedback;
@@ -201,14 +201,14 @@ export async function getFeedbackStats() {
       return {
         total: 0,
         averageRating: 0,
-        distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       };
     }
 
     const stats = {
       total: feedbacks.length,
       averageRating: 0,
-      distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     };
 
     let totalRating = 0;

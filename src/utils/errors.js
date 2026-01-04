@@ -17,25 +17,25 @@ export class ApiError extends Error {
 }
 
 // Global error handler middleware
-export function errorHandler(err, req, res, next) {
+export function errorHandler(err, req, res, _next) {
   // Log the error
   logger.error(err.message, {
     path: req.path,
     method: req.method,
-    stack: err.stack
+    stack: err.stack,
   });
 
   // Handle known API errors
   if (err instanceof ApiError) {
     return res.status(err.statusCode).json({
       error: err.message,
-      ...(err.details && { details: err.details })
+      ...(err.details && { details: err.details }),
     });
   }
 
   // Handle unknown errors
   res.status(500).json({
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
   });
 }

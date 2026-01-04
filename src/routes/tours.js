@@ -12,7 +12,7 @@ import {
   searchAttractions,
   getAttractionDetails,
   searchToursByAttraction,
-  combinedAutocomplete
+  combinedAutocomplete,
 } from '../services/affiliates/viator.js';
 import { logger } from '../utils/logger.js';
 
@@ -22,7 +22,7 @@ const router = express.Router();
 // GET /api/tours/destinations/autocomplete - Autocomplete for destination input
 // ============================================================================
 
-router.get('/destinations/autocomplete', async (req, res, next) => {
+router.get('/destinations/autocomplete', async (req, res, _next) => {
   try {
     const { q, limit = 8 } = req.query;
 
@@ -34,9 +34,8 @@ router.get('/destinations/autocomplete', async (req, res, next) => {
 
     res.json({
       suggestions,
-      query: q
+      query: q,
     });
-
   } catch (error) {
     logger.error('Autocomplete error:', error);
     res.json({ suggestions: [], error: 'Search failed' });
@@ -90,26 +89,36 @@ router.post('/search', async (req, res, next) => {
       maxPrice,
       minDuration,
       maxDuration,
-      minRating
+      minRating,
     } = req.body;
 
     if (!destination) {
       return res.status(400).json({
-        error: 'Missing required field: destination'
+        error: 'Missing required field: destination',
       });
     }
 
     // Validate flags if provided
-    const validFlags = ['FREE_CANCELLATION', 'SKIP_THE_LINE', 'PRIVATE_TOUR', 'LIKELY_TO_SELL_OUT', 'SPECIAL_OFFER', 'NEW_ON_VIATOR', 'KID_FRIENDLY'];
-    const sanitizedFlags = Array.isArray(flags)
-      ? flags.filter(f => validFlags.includes(f))
-      : [];
+    const validFlags = [
+      'FREE_CANCELLATION',
+      'SKIP_THE_LINE',
+      'PRIVATE_TOUR',
+      'LIKELY_TO_SELL_OUT',
+      'SPECIAL_OFFER',
+      'NEW_ON_VIATOR',
+      'KID_FRIENDLY',
+    ];
+    const sanitizedFlags = Array.isArray(flags) ? flags.filter(f => validFlags.includes(f)) : [];
 
-    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}${sanitizedFlags.length > 0 ? `, flags=[${sanitizedFlags.join(',')}]` : ''}`);
+    logger.info(
+      `Tour search: dest="${destination}", terms="${searchTerms}", count=${resultCount}, sort=${sortBy}${sanitizedFlags.length > 0 ? `, flags=[${sanitizedFlags.join(',')}]` : ''}`
+    );
     // Cap requested count to reasonable limit
     const requestedCount = Math.min(parseInt(resultCount) || 50, 500);
 
-    logger.info(`Tour search: dest="${destination}", terms="${searchTerms}", count=${requestedCount}, sort=${sortBy}`);
+    logger.info(
+      `Tour search: dest="${destination}", terms="${searchTerms}", count=${requestedCount}, sort=${sortBy}`
+    );
 
     const result = await searchTours({
       destination,
@@ -124,7 +133,7 @@ router.post('/search', async (req, res, next) => {
       maxPrice: maxPrice !== undefined ? parseFloat(maxPrice) : undefined,
       minDuration: minDuration !== undefined ? parseInt(minDuration) : undefined,
       maxDuration: maxDuration !== undefined ? parseInt(maxDuration) : undefined,
-      minRating: minRating !== undefined ? parseFloat(minRating) : undefined
+      minRating: minRating !== undefined ? parseFloat(minRating) : undefined,
     });
 
     // Handle both old format (array) and new format (object with metadata)
@@ -143,12 +152,14 @@ router.post('/search', async (req, res, next) => {
     const tours = allTours.slice(0, requestedCount);
     const hasMore = allTours.length > requestedCount;
 
-    logger.info(`Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`);
+    logger.info(
+      `Returning ${tours.length} tours (${totalCount} total available, hasMore: ${hasMore})`
+    );
 
     res.json({
       tours,
-      totalCount,        // Total available in cache
-      hasMore,           // Are there more results beyond what we returned?
+      totalCount, // Total available in cache
+      hasMore, // Are there more results beyond what we returned?
       count: tours.length,
       searchParams: {
         destination,
@@ -163,10 +174,9 @@ router.post('/search', async (req, res, next) => {
         maxPrice,
         minDuration,
         maxDuration,
-        minRating
-      }
+        minRating,
+      },
     });
-
   } catch (error) {
     logger.error('Tour search error:', error);
     next(error);
@@ -185,14 +195,14 @@ router.get('/attractions', async (req, res, next) => {
     if (!destinationId) {
       return res.status(400).json({
         error: 'destinationId is required',
-        example: '/api/tours/attractions?destinationId=684'
+        example: '/api/tours/attractions?destinationId=684',
       });
     }
 
     const result = await searchAttractions(parseInt(destinationId), {
       sort,
       start: parseInt(start),
-      count: Math.min(parseInt(count), 30)
+      count: Math.min(parseInt(count), 30),
     });
 
     res.json(result);
@@ -215,7 +225,7 @@ router.get('/attractions/:seoId/tours', async (req, res, next) => {
       minPrice,
       maxPrice,
       minRating,
-      destinationId
+      destinationId,
     } = req.query;
 
     if (!seoId || isNaN(parseInt(seoId))) {
@@ -229,7 +239,7 @@ router.get('/attractions/:seoId/tours', async (req, res, next) => {
       flags: flags ? flags.split(',') : [],
       minPrice: minPrice ? parseFloat(minPrice) : undefined,
       maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
-      minRating: minRating ? parseFloat(minRating) : undefined
+      minRating: minRating ? parseFloat(minRating) : undefined,
     });
 
     res.json(result);
@@ -257,7 +267,7 @@ router.get('/attractions/:attractionId', async (req, res, next) => {
 });
 
 // GET /api/tours/autocomplete/combined - Combined autocomplete for destinations AND attractions
-router.get('/autocomplete/combined', async (req, res, next) => {
+router.get('/autocomplete/combined', async (req, res, _next) => {
   try {
     const { q, limit = 8 } = req.query;
 
@@ -287,7 +297,6 @@ router.get('/:productCode', async (req, res, next) => {
 
     const tour = await getTourDetails(productCode);
     res.json({ tour });
-
   } catch (error) {
     logger.error('Tour details error:', error);
     next(error);
@@ -310,9 +319,8 @@ router.get('/destinations/search', async (req, res, next) => {
 
     res.json({
       destination,
-      found: !!destination
+      found: !!destination,
     });
-
   } catch (error) {
     logger.error('Destination search error:', error);
     next(error);
@@ -334,7 +342,6 @@ router.get('/debug/destinations', async (req, res, next) => {
     const results = await debugSearchDestinations(q);
 
     res.json(results);
-
   } catch (error) {
     logger.error('Debug destination search error:', error);
     next(error);

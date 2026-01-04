@@ -9,13 +9,12 @@ const LOG_LEVELS = {
   ERROR: 0,
   WARN: 1,
   INFO: 2,
-  DEBUG: 3
+  DEBUG: 3,
 };
 
 // Only show DEBUG in development
-const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'development' 
-  ? LOG_LEVELS.DEBUG 
-  : LOG_LEVELS.INFO;
+const CURRENT_LOG_LEVEL =
+  process.env.NODE_ENV === 'development' ? LOG_LEVELS.DEBUG : LOG_LEVELS.INFO;
 
 function log(level, levelName, message, data = null) {
   // Skip logs below current level
@@ -28,9 +27,9 @@ function log(level, levelName, message, data = null) {
     timestamp,
     level: levelName,
     message,
-    ...(data && { data })
+    ...(data && { data }),
   };
-  
+
   // In development, pretty print for readability
   if (process.env.NODE_ENV === 'development') {
     console.log(JSON.stringify(logEntry, null, 2));

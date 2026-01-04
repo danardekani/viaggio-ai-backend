@@ -15,7 +15,7 @@ const router = express.Router();
 // POST /api/feedback
 // ============================================================================
 // Submit user feedback
-// 
+//
 // Request body:
 // {
 //   "rating": 5,                         // 1-5 stars
@@ -24,7 +24,7 @@ const router = express.Router();
 //   "page": "itinerary",                 // Where feedback was given
 //   "metadata": {...}                    // Additional data
 // }
-// 
+//
 // Response:
 // {
 //   "id": "uuid",
@@ -47,21 +47,20 @@ router.post('/', async (req, res, next) => {
       comment: comment || '',
       sessionId: sessionId || 'anonymous',
       page: page || 'unknown',
-      metadata: metadata || {}
+      metadata: metadata || {},
     });
 
     logger.info('User feedback received', {
       feedbackId: feedback.id,
       rating: feedback.rating,
-      page: feedback.page
+      page: feedback.page,
     });
 
     res.json({
       id: feedback.id,
       success: true,
-      message: 'Thank you for your feedback!'
+      message: 'Thank you for your feedback!',
     });
-
   } catch (error) {
     next(error);
   }
@@ -79,9 +78,8 @@ router.get('/stats', async (req, res, next) => {
 
     res.json({
       success: true,
-      stats
+      stats,
     });
-
   } catch (error) {
     next(error);
   }
