@@ -13,6 +13,7 @@ export const corsConfig = {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
       'https://viaggio-ai-frontend.vercel.app',
+      'https://staging-viaggio-ai.vercel.app',
       'http://localhost:5173',
       'http://localhost:3000',
     ];
