@@ -21,12 +21,12 @@ router.post('/', async (req, res, next) => {
     if (req.body.image) {
       imageBase64 = req.body.image;
       mediaType = req.body.mediaType || 'image/jpeg';
-      
+
       // Remove data URL prefix if present
       if (imageBase64.includes('base64,')) {
         const parts = imageBase64.split('base64,');
         imageBase64 = parts[1];
-        
+
         const mediaMatch = parts[0].match(/data:([^;]+)/);
         if (mediaMatch) {
           mediaType = mediaMatch[1];
@@ -35,7 +35,7 @@ router.post('/', async (req, res, next) => {
     } else {
       return res.status(400).json({
         success: false,
-        error: 'No image provided.'
+        error: 'No image provided.',
       });
     }
 
@@ -44,7 +44,7 @@ router.post('/', async (req, res, next) => {
     if (imageSizeBytes > 10 * 1024 * 1024) {
       return res.status(400).json({
         success: false,
-        error: 'Image too large. Maximum size is 10MB.'
+        error: 'Image too large. Maximum size is 10MB.',
       });
     }
 
@@ -55,7 +55,7 @@ router.post('/', async (req, res, next) => {
 
     if (result.success) {
       logger.info(`Identified: ${result.destination?.fullName} in ${elapsed}ms`);
-      
+
       res.json({
         success: true,
         source: result.source,
@@ -67,7 +67,7 @@ router.post('/', async (req, res, next) => {
         reasoning: result.reasoning,
         // NEW: Include Viator ID for faster tour search
         viatorDestinationId: result.viatorDestinationId || null,
-        processingTimeMs: elapsed
+        processingTimeMs: elapsed,
       });
     } else {
       res.json({
@@ -75,10 +75,9 @@ router.post('/', async (req, res, next) => {
         message: 'Could not identify the location.',
         reasoning: result.reasoning,
         suggestion: 'Try a clearer image with visible landmarks.',
-        processingTimeMs: elapsed
+        processingTimeMs: elapsed,
       });
     }
-
   } catch (error) {
     logger.error('Identification error:', error);
     next(error);
@@ -95,8 +94,8 @@ router.get('/health', (req, res) => {
     services: {
       googleVision: process.env.GOOGLE_VISION_API_KEY ? 'configured' : 'not configured',
       geminiAI: process.env.GEMINI_API_KEY ? 'configured' : 'not configured',
-      claudeAI: process.env.ANTHROPIC_API_KEY ? 'configured' : 'not configured'
-    }
+      claudeAI: process.env.ANTHROPIC_API_KEY ? 'configured' : 'not configured',
+    },
   });
 });
 

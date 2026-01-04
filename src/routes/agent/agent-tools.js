@@ -27,45 +27,56 @@ The tool returns real, bookable tours with prices, ratings, and availability.`,
       properties: {
         destination: {
           type: 'string',
-          description: 'City or region name (e.g., "Rome", "Paris", "New York", "Tuscany")'
+          description: 'City or region name (e.g., "Rome", "Paris", "New York", "Tuscany")',
         },
         interests: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Types of activities to search for (e.g., ["food", "history", "adventure", "wine", "art"]). Leave empty for general search.'
+          description:
+            'Types of activities to search for (e.g., ["food", "history", "adventure", "wine", "art"]). Leave empty for general search.',
         },
         sort_by: {
           type: 'string',
-          enum: ['popular', 'reviews', 'rating', 'price_low', 'price_high', 'newest', 'duration_short', 'duration_long'],
-          description: 'How to sort results: "popular" (default), "reviews" (most reviewed), "rating" (highest rated), "price_low", "price_high", "newest", "duration_short", "duration_long"'
+          enum: [
+            'popular',
+            'reviews',
+            'rating',
+            'price_low',
+            'price_high',
+            'newest',
+            'duration_short',
+            'duration_long',
+          ],
+          description:
+            'How to sort results: "popular" (default), "reviews" (most reviewed), "rating" (highest rated), "price_low", "price_high", "newest", "duration_short", "duration_long"',
         },
         start_date: {
           type: 'string',
-          description: 'Start date for availability in YYYY-MM-DD format (optional)'
+          description: 'Start date for availability in YYYY-MM-DD format (optional)',
         },
         end_date: {
           type: 'string',
-          description: 'End date for availability in YYYY-MM-DD format (optional)'
+          description: 'End date for availability in YYYY-MM-DD format (optional)',
         },
         max_price: {
           type: 'number',
-          description: 'Maximum price per person in USD (optional)'
+          description: 'Maximum price per person in USD (optional)',
         },
         min_rating: {
           type: 'number',
-          description: 'Minimum rating from 1-5 (optional, e.g., 4 for 4+ stars)'
+          description: 'Minimum rating from 1-5 (optional, e.g., 4 for 4+ stars)',
         },
         special_offer: {
           type: 'boolean',
-          description: 'Set to true to find tours with deals/discounts/special offers'
+          description: 'Set to true to find tours with deals/discounts/special offers',
         },
         result_count: {
           type: 'number',
-          description: 'Number of results to return (default: 5, max: 10)'
-        }
+          description: 'Number of results to return (default: 5, max: 10)',
+        },
       },
-      required: ['destination']
-    }
+      required: ['destination'],
+    },
   },
 
   // ==========================================================================
@@ -88,16 +99,17 @@ This uses Claude's knowledge rather than an external API.`,
       properties: {
         destination: {
           type: 'string',
-          description: 'City, region, or country to get information about'
+          description: 'City, region, or country to get information about',
         },
         topics: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Specific topics to cover (e.g., ["best_time", "neighborhoods", "local_food", "safety", "transportation"])'
-        }
+          description:
+            'Specific topics to cover (e.g., ["best_time", "neighborhoods", "local_food", "safety", "transportation"])',
+        },
       },
-      required: ['destination']
-    }
+      required: ['destination'],
+    },
   },
 
   // ==========================================================================
@@ -118,16 +130,16 @@ NOTE: This requires an image URL or base64 data to be provided.`,
       properties: {
         image_url: {
           type: 'string',
-          description: 'URL of the image to analyze'
+          description: 'URL of the image to analyze',
         },
         image_data: {
           type: 'string',
-          description: 'Base64-encoded image data (alternative to URL)'
-        }
+          description: 'Base64-encoded image data (alternative to URL)',
+        },
       },
-      required: []
-    }
-  }
+      required: [],
+    },
+  },
 ];
 
 // ============================================================================

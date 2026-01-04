@@ -15,7 +15,7 @@ const router = express.Router();
 // POST /api/tracking/click
 // ============================================================================
 // Track an affiliate link click
-// 
+//
 // Request body:
 // {
 //   "type": "flight",                    // flight, hotel, or tour
@@ -24,7 +24,7 @@ const router = express.Router();
 //   "sessionId": "uuid",                 // User session ID
 //   "metadata": {...}                    // Additional data
 // }
-// 
+//
 // Response:
 // {
 //   "id": "uuid",                        // Unique click ID
@@ -55,21 +55,20 @@ router.post('/click', async (req, res, next) => {
       sessionId: sessionId || 'anonymous',
       userAgent: req.headers['user-agent'],
       referrer: req.headers.referer || req.headers.referrer,
-      metadata
+      metadata,
     });
 
-    logger.info('Affiliate click tracked', { 
+    logger.info('Affiliate click tracked', {
       clickId: click.id,
       type: click.type,
-      provider: click.provider
+      provider: click.provider,
     });
 
     res.json({
       id: click.id,
       tracked: true,
-      timestamp: click.timestamp
+      timestamp: click.timestamp,
     });
-
   } catch (error) {
     next(error);
   }
@@ -87,9 +86,8 @@ router.get('/stats', async (req, res, next) => {
 
     res.json({
       success: true,
-      stats
+      stats,
     });
-
   } catch (error) {
     next(error);
   }
@@ -111,14 +109,13 @@ router.post('/conversion', async (req, res, next) => {
       clickId,
       amount,
       currency,
-      bookingId
+      bookingId,
     });
 
     res.json({
       success: true,
-      message: 'Conversion tracked'
+      message: 'Conversion tracked',
     });
-
   } catch (error) {
     next(error);
   }
