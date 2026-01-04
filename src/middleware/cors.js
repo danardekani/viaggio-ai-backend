@@ -6,27 +6,35 @@
 
 export const corsConfig = {
   origin: function (origin, callback) {
-    // Allow requests from your frontend domain
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-
-      // Test/Preview branches
-      'https://viaggio-ai-git-viaggio-ai-frontend-test-danardekanis-projects.vercel.app',
-      'https://viaggio-a7dvl0g3r-danardekanis-projects.vercel.app',
-      'https://viaggio-ai.vercel.app',
-
-      'http://localhost:5173', // Local development
-      'http://localhost:3000', // Alternative local port
-    ];
-
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allowed origins from environment and localhost
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      'https://viaggio-ai-frontend.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ];
+
+    // Add any additional origins from environment variable (comma-separated)
+    if (process.env.ALLOWED_ORIGINS) {
+      const extraOrigins = process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
+      allowedOrigins.push(...extraOrigins);
     }
+
+    // Check exact match
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+
+    // Allow Vercel preview URLs for this specific project only
+    // Pattern: *-danardekanis-projects.vercel.app
+    if (origin.endsWith('-danardekanis-projects.vercel.app')) {
+      return callback(null, true);
+    }
+
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
