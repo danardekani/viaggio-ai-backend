@@ -1,5 +1,5 @@
 // ============================================================================
-// AGENTIC CHAT ROUTES 
+// AGENTIC CHAT ROUTES
 // ============================================================================
 // This is the agentic version of the chat endpoint.
 // Claude can autonomously use tools to help users plan trips.
@@ -14,14 +14,14 @@ const router = express.Router();
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 // Simple logger
 const logger = {
   info: (...args) => console.log('[Agent Chat]', ...args),
   warn: (...args) => console.warn('[Agent Chat]', ...args),
-  error: (...args) => console.error('[Agent Chat]', ...args)
+  error: (...args) => console.error('[Agent Chat]', ...args),
 };
 
 // ==========================================================================
@@ -30,19 +30,19 @@ const logger = {
 const ALLOWED_ORIGINS = [
   'https://viaggio-ai.vercel.app',
   'http://localhost:5173',
-  'http://localhost:3000'
+  'http://localhost:3000',
 ];
 
 router.use((req, res, next) => {
   const origin = req.headers.origin;
-  
+
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -60,18 +60,18 @@ const REQUEST_TIMEOUT_MS = 55000;
 
 function buildSystemPrompt(currentResults) {
   let systemPrompt = travelAgentSystemPrompt;
-  
+
   // If there are currently displayed results, add them to context (limit to 10 to save tokens)
   if (currentResults && currentResults.tours?.length > 0) {
     systemPrompt += `\n\n## CURRENTLY DISPLAYED RESULTS\n`;
     systemPrompt += `The user is viewing search results. When they reference "these" or ask "which one", use this info:\n\n`;
-    
+
     // Only include first 10 tours to save tokens
     const toursToShow = currentResults.tours.slice(0, 10);
     toursToShow.forEach((tour, i) => {
       systemPrompt += `${i + 1}. "${tour.name}" - $${tour.price}, ${tour.rating}★\n`;
     });
-    
+
     if (currentResults.tours.length > 10) {
       systemPrompt += `(+ ${currentResults.tours.length - 10} more tours)\n`;
     }
@@ -86,20 +86,22 @@ function buildSystemPrompt(currentResults) {
 
 router.post('/chat', async (req, res) => {
   const startTime = Date.now();
-  
+
   try {
-    const { messages, context = {}, currentResults = null } = req.body;
+    const { messages, context: _context = {}, currentResults = null } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ 
-        error: 'Messages array is required' 
+      return res.status(400).json({
+        error: 'Messages array is required',
       });
     }
 
     logger.info(`Processing agentic chat request with ${messages.length} messages`);
-    
+
     if (currentResults) {
-      logger.info(`Context includes ${currentResults.tours?.length || 0} tours, ${currentResults.activities?.length || 0} activities`);
+      logger.info(
+        `Context includes ${currentResults.tours?.length || 0} tours, ${currentResults.activities?.length || 0} activities`
+      );
     }
 
     // Build context-aware system prompt
@@ -108,13 +110,15 @@ router.post('/chat', async (req, res) => {
     // Build conversation history for Claude - LIMIT to last 10 messages to save tokens
     const MAX_HISTORY_MESSAGES = 10;
     const recentMessages = messages.slice(-MAX_HISTORY_MESSAGES);
-    let conversationMessages = recentMessages.map(msg => ({
+    const conversationMessages = recentMessages.map(msg => ({
       role: msg.role,
-      content: msg.content
+      content: msg.content,
     }));
-    
+
     if (messages.length > MAX_HISTORY_MESSAGES) {
-      logger.info(`Trimmed conversation from ${messages.length} to ${MAX_HISTORY_MESSAGES} messages`);
+      logger.info(
+        `Trimmed conversation from ${messages.length} to ${MAX_HISTORY_MESSAGES} messages`
+      );
     }
 
     // Track tool usage for this request
@@ -142,9 +146,11 @@ router.post('/chat', async (req, res) => {
           .filter(m => m.role === 'assistant' && typeof m.content === 'string')
           .map(m => m.content)
           .join('\n');
-        
+
         return res.json({
-          message: partialText || "I'm taking a bit longer than expected. Could you try a more specific request?",
+          message:
+            partialText ||
+            "I'm taking a bit longer than expected. Could you try a more specific request?",
           tours: toursFound,
           activities: activitiesFound,
           searchDestination: searchDestination,
@@ -157,8 +163,8 @@ router.post('/chat', async (req, res) => {
           usage: {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
-            totalTokens: totalInputTokens + totalOutputTokens
-          }
+            totalTokens: totalInputTokens + totalOutputTokens,
+          },
         });
       }
 
@@ -173,27 +179,27 @@ router.post('/chat', async (req, res) => {
           max_tokens: 1024,
           system: systemPrompt,
           tools: agentTools,
-          messages: conversationMessages
+          messages: conversationMessages,
         });
       } catch (apiError) {
         const errorMessage = apiError.message || '';
         logger.error('Claude API error:', errorMessage);
-        
+
         if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
           return res.json({
             message: "I'm a bit busy right now! Please wait a moment and try again. 😊",
             error: true,
             errorType: 'rate_limit',
             toolsUsed,
-            iterations
+            iterations,
           });
         }
-        
+
         return res.json({
           message: "I'm having trouble connecting right now. Could you try again in a moment?",
           error: true,
           toolsUsed,
-          iterations
+          iterations,
         });
       }
 
@@ -203,19 +209,22 @@ router.post('/chat', async (req, res) => {
 
       // Process the response
       const contentBlocks = response.content || [];
-      
+
       // Check for text response
       const textBlock = contentBlocks.find(b => b.type === 'text');
-      
+
       // Check for tool use
       const toolUseBlocks = contentBlocks.filter(b => b.type === 'tool_use');
 
       // If no tool use, we're done - return the text response
       if (toolUseBlocks.length === 0) {
-        const finalText = textBlock?.text || "I'm not sure how to help with that. Could you tell me more?";
-        
-        logger.info(`Final response after ${iterations} iterations, ${toolsUsed.length} tools used`);
-        
+        const finalText =
+          textBlock?.text || "I'm not sure how to help with that. Could you tell me more?";
+
+        logger.info(
+          `Final response after ${iterations} iterations, ${toolsUsed.length} tools used`
+        );
+
         return res.json({
           message: finalText,
           tours: toursFound,
@@ -229,21 +238,21 @@ router.post('/chat', async (req, res) => {
           usage: {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
-            totalTokens: totalInputTokens + totalOutputTokens
-          }
+            totalTokens: totalInputTokens + totalOutputTokens,
+          },
         });
       }
 
       // Process tool calls
       const toolResults = [];
-      
+
       for (const toolUse of toolUseBlocks) {
         logger.info(`Executing tool: ${toolUse.name}`);
         toolsUsed.push(toolUse.name);
-        
+
         try {
           const result = await executeTool(toolUse.name, toolUse.input);
-          
+
           // Collect tours for card display (from Viator)
           if (result.tours && Array.isArray(result.tours)) {
             toursFound.push(...result.tours);
@@ -271,11 +280,11 @@ router.post('/chat', async (req, res) => {
               hasMoreActivities = true;
             }
           }
-          
+
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,
-            content: JSON.stringify(result)
+            content: JSON.stringify(result),
           });
         } catch (toolError) {
           logger.error(`Tool ${toolUse.name} failed:`, toolError.message);
@@ -283,7 +292,7 @@ router.post('/chat', async (req, res) => {
             type: 'tool_result',
             tool_use_id: toolUse.id,
             content: JSON.stringify({ error: toolError.message }),
-            is_error: true
+            is_error: true,
           });
         }
       }
@@ -291,12 +300,12 @@ router.post('/chat', async (req, res) => {
       // Add assistant response and tool results to conversation
       conversationMessages.push({
         role: 'assistant',
-        content: contentBlocks
+        content: contentBlocks,
       });
-      
+
       conversationMessages.push({
         role: 'user',
-        content: toolResults
+        content: toolResults,
       });
     }
 
@@ -304,7 +313,7 @@ router.post('/chat', async (req, res) => {
     logger.warn(`Max iterations (${MAX_TOOL_ITERATIONS}) reached`);
 
     return res.json({
-      message: "Let me summarize what I found so far. Could you try a more specific question?",
+      message: 'Let me summarize what I found so far. Could you try a more specific question?',
       tours: toursFound,
       activities: activitiesFound,
       searchDestination: searchDestination,
@@ -317,16 +326,15 @@ router.post('/chat', async (req, res) => {
       usage: {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
-        totalTokens: totalInputTokens + totalOutputTokens
-      }
+        totalTokens: totalInputTokens + totalOutputTokens,
+      },
     });
-
   } catch (error) {
     logger.error('Agentic chat error:', error);
-    
+
     return res.status(500).json({
       error: 'Failed to process request',
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -341,7 +349,7 @@ router.get('/health', (req, res) => {
     mode: 'agentic',
     model: MODEL,
     toolsAvailable: agentTools.map(t => t.name),
-    maxIterations: MAX_TOOL_ITERATIONS
+    maxIterations: MAX_TOOL_ITERATIONS,
   });
 });
 
@@ -354,11 +362,11 @@ router.get('/tools', (req, res) => {
     name: tool.name,
     description: tool.description.split('\n')[0],
     requiredParams: tool.input_schema.required || [],
-    status: getToolStatus(tool.name)
+    status: getToolStatus(tool.name),
   }));
 
   res.json({
-    tools: toolSummaries
+    tools: toolSummaries,
   });
 });
 
