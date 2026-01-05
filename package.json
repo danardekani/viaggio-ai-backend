@@ -15,8 +15,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write 'src/**/*.js'",
-    "format:check": "prettier --check 'src/**/*.js'",
-    "prepare": "husky"
+    "format:check": "prettier --check 'src/**/*.js'"
   },
   "keywords": [
     "travel",
